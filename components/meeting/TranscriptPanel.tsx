@@ -23,14 +23,12 @@ export function TranscriptPanel({
   onSpeakerMerge,
   onSpeakerDelete,
   onGlossaryCorrection,
-  calibrationStatus,
 }: {
   transcripts: TranscriptLine[];
   liveAsrText: string;
   calibrationStatus?: string;
   isRealAsrActive: boolean;
   asrStatusLabel: string;
-  calibrationStatus?: string;
   speakerStats: SpeakerStat[];
   speakerEditingId: number | null;
   speakerDraft: string;
