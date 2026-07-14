@@ -66,6 +66,7 @@ export type TranscriptLine = {
   audioPath?: string;
   audioStartMs?: number;
   audioEndMs?: number;
+  isRealtimePreview?: boolean;
   focus?: boolean;
 };
 
