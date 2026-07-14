@@ -6580,7 +6580,7 @@ button {
   flex-direction: column;
   flex: 1;
   min-height: 0;
-  overflow: hidden;
+  overflow-y: auto;
 }
 
 .home-dash-two-col {
