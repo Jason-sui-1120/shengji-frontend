@@ -215,6 +215,7 @@ export function TranscriptPanel({
           </div>
         )}
         {[...filteredTranscripts].reverse().map((line, index) => {
+          const isRealtimePreview = Boolean(line.isRealtimePreview);
           const color = getSpeakerColorFn(transcripts, line.speaker);
           const num = getSpeakerNumberFn(transcripts, line.speaker);
           return (
@@ -226,7 +227,7 @@ export function TranscriptPanel({
             >
               <div className="transcript-meta">
                 <div className="sp-avatar-sm" style={{ background: color.bg }}>{num}</div>
-                {speakerEditingId === line.id ? (
+                {speakerEditingId === line.id && !isRealtimePreview ? (
                   <input
                     aria-label="纠正发言人"
                     className="speaker-input"
@@ -243,8 +244,8 @@ export function TranscriptPanel({
                 ) : (
                   <span
                     className="speaker-tag"
-                    style={{ color: color.bg, cursor: "pointer" }}
-                    onClick={() => onSpeakerCorrectionStart(line)}
+                    style={{ color: color.bg, cursor: isRealtimePreview ? "default" : "pointer" }}
+                    onClick={isRealtimePreview ? undefined : () => onSpeakerCorrectionStart(line)}
                   >
                     {line.speaker}
                   </span>
@@ -280,7 +281,7 @@ export function TranscriptPanel({
                 ) : (
                   <>
                     <span>{line.text}</span>
-                    {onGlossaryCorrection && (
+                    {onGlossaryCorrection && !isRealtimePreview && (
                       <button
                         className="transcript-inline-action"
                         type="button"
@@ -309,7 +310,8 @@ export function TranscriptPanel({
 
 function TranscriptQualityBadges({ line }: { line: TranscriptLine }) {
   const badges: string[] = [];
-  if (line.stabilityStatus === "draft") badges.push("待稳定校准");
+  if (line.isRealtimePreview) badges.push("实时草稿");
+  else if (line.stabilityStatus === "draft") badges.push("待稳定校准");
   if (line.correctionApplied) badges.push("已校正");
   if (line.userEdited) badges.push("人工已编辑");
   else if (line.correctionSource === "huoshan-asr") badges.push("高质量校准");

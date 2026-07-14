@@ -65,6 +65,7 @@ export type TranscriptLine = {
   speakerConfidence?: number;
   audioStartMs?: number;
   audioEndMs?: number;
+  isRealtimePreview?: boolean;
   focus?: boolean;
 };
 
