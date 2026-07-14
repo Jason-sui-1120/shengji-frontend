@@ -82,7 +82,7 @@ async function sharedFileHashes() {
 function targetDefinition(kind, repoPath) {
   const repo = resolve(repoPath);
   return kind === "public"
-    ? { kind, repo, destination: resolve(repo, "src/shared"), buildCwd: repo }
+    ? { kind, repo, destination: resolve(repo, "src"), buildCwd: repo }
     : { kind, repo, destination: resolve(repo, "front/src"), buildCwd: resolve(repo, "front") };
 }
 
@@ -91,30 +91,52 @@ async function assertSafeTarget(target) {
   if (isNested(sourceRoot, target.repo) || isNested(target.repo, sourceRoot)) {
     usage(`共享源码和 ${target.kind} 目标目录不能互相嵌套；请从独立 clone 运行本脚本`);
   }
-  if (target.kind === "public" && await exists(resolve(target.destination, ".git"))) {
+  if (target.kind === "public" && await exists(resolve(target.destination, "shared/.git"))) {
     usage("公网仓库仍是 git submodule。请先移除 src/shared 子模块和 .gitmodules，再执行同步。");
   }
 }
 
-function metadata(revision, hashes, target) {
+function targetFileMap(target, sourceHashes) {
+  const files = {};
+  for (const [source, hash] of Object.entries(sourceHashes)) {
+    if (target.kind === "company") {
+      files[source] = { source, hash };
+    } else if (source === "styles.css") {
+      files["styles.css"] = { source, hash };
+    } else if (source === "types.ts") {
+      files["types.ts"] = { source, hash };
+      files["shared/types.ts"] = { source, hash };
+    } else {
+      files[`shared/${source}`] = { source, hash };
+    }
+  }
+  return Object.fromEntries(Object.entries(files).sort(([left], [right]) => left.localeCompare(right)));
+}
+
+function metadata(revision, files, target) {
   return {
     schemaVersion: 1,
     source: sourceName,
     revision,
-    layout: target.kind === "public" ? "src/shared" : "front/src",
-    files: hashes,
+    layout: target.kind === "public" ? "src/shared components + src root assets" : "front/src",
+    files: Object.fromEntries(Object.entries(files).map(([destination, item]) => [destination, item.hash])),
   };
 }
 
 async function syncTarget(target, revision, hashes) {
   await mkdir(target.destination, { recursive: true });
-  for (const entry of sharedEntries) {
-    const source = resolve(sourceRoot, entry);
-    const destination = resolve(target.destination, entry);
-    await rm(destination, { recursive: true, force: true });
-    await cp(source, destination, { recursive: true });
+  const files = targetFileMap(target, hashes);
+  const managedDirectories = target.kind === "public" ? ["shared/components", "shared/lib"] : ["components", "lib"];
+  for (const directory of managedDirectories) {
+    await rm(resolve(target.destination, directory), { recursive: true, force: true });
   }
-  await writeFile(resolve(target.repo, "frontend-sync.json"), `${JSON.stringify(metadata(revision, hashes, target), null, 2)}\n`);
+  if (target.kind === "public") await rm(resolve(target.destination, "shared/styles.css"), { force: true });
+  for (const [destination, item] of Object.entries(files)) {
+    const destinationPath = resolve(target.destination, destination);
+    await mkdir(dirname(destinationPath), { recursive: true });
+    await cp(resolve(sourceRoot, item.source), destinationPath);
+  }
+  await writeFile(resolve(target.repo, "frontend-sync.json"), `${JSON.stringify(metadata(revision, files, target), null, 2)}\n`);
   console.log(`已同步 ${target.kind}：${revision.slice(0, 12)}`);
 }
 
@@ -127,16 +149,15 @@ async function checkTarget(target, revision, hashes) {
   } catch {
     return `${target.kind} 的 frontend-sync.json 无法解析`;
   }
+  const files = targetFileMap(target, hashes);
   if (saved.revision !== revision) return `${target.kind} 记录的共享版本不是 ${revision.slice(0, 12)}`;
-  const actual = {};
-  for (const entry of sharedEntries) {
-    const path = resolve(target.destination, entry);
-    if (!await exists(path)) return `${target.kind} 缺少 ${entry}`;
-    const entryStat = await stat(path);
-    if (entryStat.isDirectory()) Object.assign(actual, await collectHashes(target.destination, path));
-    else actual[entry] = createHash("sha256").update(await readFile(path)).digest("hex");
+  if (JSON.stringify(saved.files) !== JSON.stringify(metadata(revision, files, target).files)) return `${target.kind} 的校验清单已过期`;
+  for (const [destination, item] of Object.entries(files)) {
+    const path = resolve(target.destination, destination);
+    if (!await exists(path)) return `${target.kind} 缺少 ${destination}`;
+    const actual = createHash("sha256").update(await readFile(path)).digest("hex");
+    if (actual !== item.hash) return `${target.kind} 的 ${destination} 与共享源不一致`;
   }
-  if (JSON.stringify(actual) !== JSON.stringify(hashes)) return `${target.kind} 的共享前端文件与源版本不一致`;
   return null;
 }
 
