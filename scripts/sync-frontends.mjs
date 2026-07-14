@@ -9,7 +9,7 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 const sourceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const sharedEntries = ["components", "lib", "styles.css", "types.ts"];
+const sharedEntries = ["app/App.tsx", "components", "lib", "styles.css", "types.ts"];
 const sourceName = "Jason-sui-1120/shengji-frontend";
 
 function usage(message) {
@@ -96,10 +96,20 @@ async function assertSafeTarget(target) {
   }
 }
 
-function targetFileMap(target, sourceHashes) {
+function hashContent(content) {
+  return createHash("sha256").update(content).digest("hex");
+}
+
+async function targetFileMap(target, sourceHashes) {
   const files = {};
   for (const [source, hash] of Object.entries(sourceHashes)) {
-    if (target.kind === "company") {
+    if (source === "app/App.tsx") {
+      const sourceContent = await readFile(resolve(sourceRoot, source), "utf8");
+      const content = target.kind === "company"
+        ? sourceContent.replaceAll('"./shared/', '"./').replaceAll("'./shared/", "'./")
+        : sourceContent;
+      files["App.tsx"] = { source, hash: hashContent(content), content };
+    } else if (target.kind === "company") {
       files[source] = { source, hash };
     } else if (source === "styles.css") {
       files["styles.css"] = { source, hash };
@@ -125,7 +135,7 @@ function metadata(revision, files, target) {
 
 async function syncTarget(target, revision, hashes) {
   await mkdir(target.destination, { recursive: true });
-  const files = targetFileMap(target, hashes);
+  const files = await targetFileMap(target, hashes);
   const managedDirectories = target.kind === "public" ? ["shared/components", "shared/lib"] : ["components", "lib"];
   for (const directory of managedDirectories) {
     await rm(resolve(target.destination, directory), { recursive: true, force: true });
@@ -134,7 +144,8 @@ async function syncTarget(target, revision, hashes) {
   for (const [destination, item] of Object.entries(files)) {
     const destinationPath = resolve(target.destination, destination);
     await mkdir(dirname(destinationPath), { recursive: true });
-    await cp(resolve(sourceRoot, item.source), destinationPath);
+    if (item.content !== undefined) await writeFile(destinationPath, item.content);
+    else await cp(resolve(sourceRoot, item.source), destinationPath);
   }
   await writeFile(resolve(target.repo, "frontend-sync.json"), `${JSON.stringify(metadata(revision, files, target), null, 2)}\n`);
   console.log(`已同步 ${target.kind}：${revision.slice(0, 12)}`);
@@ -149,7 +160,7 @@ async function checkTarget(target, revision, hashes) {
   } catch {
     return `${target.kind} 的 frontend-sync.json 无法解析`;
   }
-  const files = targetFileMap(target, hashes);
+  const files = await targetFileMap(target, hashes);
   if (saved.revision !== revision) return `${target.kind} 记录的共享版本不是 ${revision.slice(0, 12)}`;
   if (JSON.stringify(saved.files) !== JSON.stringify(metadata(revision, files, target).files)) return `${target.kind} 的校验清单已过期`;
   for (const [destination, item] of Object.entries(files)) {

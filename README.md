@@ -21,8 +21,8 @@ node scripts/sync-frontends.mjs \
 
 脚本会：
 
-1. 将 `components/`、`lib/`、`styles.css`、`types.ts` 同步到两端；
+1. 将统一的 `App.tsx`、`components/`、`lib/`、`styles.css`、`types.ts` 同步到两端；
 2. 写入各自的 `frontend-sync.json`，记录共享提交和所有文件的 SHA-256 校验值；
 3. 可选地构建两端前端。`--check` 只校验两端是否仍与当前共享版本一致。
 
-共享目录只能在本仓库修改。同步到两端后，必须提交两端生成的真实文件与 `frontend-sync.json`；CI 可运行同一脚本的 `--check` 来阻止漂移。
+共享目录只能在本仓库修改。`app/App.tsx` 是统一的会议页面入口；脚本会为公司版自动改写共享模块的相对导入路径，认证入口、后端和部署配置仍由两端各自维护。同步到两端后，必须提交两端生成的真实文件与 `frontend-sync.json`；CI 可运行同一脚本的 `--check` 来阻止漂移。
