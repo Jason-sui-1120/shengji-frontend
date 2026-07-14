@@ -1,5 +1,5 @@
 import { Plus, ArrowRight, Pause, Square, ChevronRight, Check, Calendar, ExternalLink } from "lucide-react";
-import { useState, useRef, useEffect } from "react";
+import { useState } from "react";
 import type { FinalizedMeeting, ActionBacklogItem, Meeting, TranscriptLine, SpeakerStat, ActionStatus } from "../../types";
 import { isOpenAction, getUrgencyLevel, type UrgencyLevel } from "../../lib/actions";
 import { formatArchiveDate } from "../../lib/date";
@@ -48,9 +48,6 @@ export function HomePage({
   onOpenHistory: () => void;
   onUpdateAction?: (action: ActionBacklogItem, patch: { status?: ActionStatus; due?: string }) => void;
 }) {
-  const rightColRef = useRef<HTMLDivElement>(null);
-  const leftColRef = useRef<HTMLDivElement>(null);
-
   const isFinalized = finalizedMeeting?.meetingId === meeting?.id;
   const hasActiveMeeting = !isFinalized && (isRealAsrActive || (meeting && elapsed > 0) || (transcripts.length > 0));
   const recentMeetings = finalizedMeetings.slice(0, 3);
@@ -71,20 +68,6 @@ export function HomePage({
   const sortedDone = doneActions.sort((a, b) => sortByDueDesc(a, b));
   const displayActions = [...sortedUrgent, ...sortedNormal, ...sortedDone].slice(0, 12);
 
-  // 左栏高度跟随右栏
-  useEffect(() => {
-    function syncHeight() {
-      if (rightColRef.current && leftColRef.current) {
-        const rightHeight = rightColRef.current.offsetHeight;
-        leftColRef.current.style.maxHeight = `${rightHeight}px`;
-      }
-    }
-    syncHeight();
-    window.addEventListener("resize", syncHeight);
-    const timer = setTimeout(syncHeight, 100);
-    return () => { window.removeEventListener("resize", syncHeight); clearTimeout(timer); };
-  }, [hasActiveMeeting, recentMeetings.length, displayActions.length]);
-
   const elapsedText = `${String(Math.floor(elapsed / 60)).padStart(2, "0")}:${String(elapsed % 60).padStart(2, "0")}`;
   const speakerCount = speakerStats.length;
   const transcriptCount = transcripts.length;
@@ -98,7 +81,7 @@ export function HomePage({
       <div className="home-dashboard">
         <div className="home-dash-two-col">
           {/* 左栏：今日待办 */}
-          <div className="dash-section dash-todo-section" ref={leftColRef}>
+          <div className="dash-section dash-todo-section">
             <div className="dash-section-head">
               <div className="dash-section-title">今日待办</div>
               <button className="dash-section-more" onClick={onOpenActions}>查看全部 →</button>
@@ -134,7 +117,7 @@ export function HomePage({
           </div>
 
           {/* 右栏：进行中会议 + 近期会议 */}
-          <div className="home-dash-right" ref={rightColRef}>
+          <div className="home-dash-right">
             {hasActiveMeeting ? (
               <div className="dash-section">
                 <div className="dash-section-head">

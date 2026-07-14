@@ -6567,7 +6567,7 @@ button {
   flex-direction: column;
   flex: 1;
   min-height: 0;
-  overflow: hidden;
+  overflow-y: auto;
 }
 
 /* Dashboard layout */
@@ -6588,9 +6588,6 @@ button {
   grid-template-columns: 1fr 1fr;
   gap: 16px;
   align-items: start;
-  flex: 1;
-  min-height: 0;
-  overflow: hidden;
 }
 
 .home-dash-right {
@@ -6599,37 +6596,14 @@ button {
   gap: 16px;
 }
 
-/* 左栏跟随右栏高度，内部滚动 */
+/* 左栏待办列表自适应高度 */
 .dash-section.dash-todo-section {
   display: flex;
   flex-direction: column;
-  min-height: 0;
-  overflow: hidden;
 }
 
 .dash-todo-list {
   flex: 1;
-  overflow-y: auto;
-  min-height: 0;
-  scrollbar-width: thin;
-  scrollbar-color: var(--line) transparent;
-}
-
-.dash-todo-list::-webkit-scrollbar {
-  width: 4px;
-}
-
-.dash-todo-list::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.dash-todo-list::-webkit-scrollbar-thumb {
-  background: var(--line);
-  border-radius: 2px;
-}
-
-.dash-todo-list::-webkit-scrollbar-thumb:hover {
-  background: var(--line-strong);
 }
 
 @media (max-width: 768px) {
