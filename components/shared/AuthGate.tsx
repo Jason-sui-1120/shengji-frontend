@@ -1,6 +1,5 @@
-// author: liupeisheng002@ke.com
 import React, { useEffect, useState } from "react";
-import { fetchCurrentUser, fetchMockUsers, mockLogin, redirectToLogin, type AuthUser, type MockUserOption } from "../../lib/api";
+import { fetchCurrentUser, fetchMockUsers, mockLogin, redirectToLogin, isAuthEnabled, type AuthUser, type MockUserOption } from "../../lib/api";
 
 type GateState =
   | { phase: "checking" }
@@ -21,6 +20,15 @@ const centerStyle: React.CSSProperties = {
 };
 
 export default function AuthGate({ children }: { children: React.ReactNode }) {
+  // 认证未启用时直接渲染子组件
+  if (!isAuthEnabled()) {
+    return <>{children}</>;
+  }
+
+  return <AuthGateInner>{children}</AuthGateInner>;
+}
+
+function AuthGateInner({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<GateState>({ phase: "checking" });
 
   useEffect(() => {
