@@ -7,6 +7,7 @@ import { getSpeakerOptions as getSpeakerOptionsFn, getSpeakerColor as getSpeaker
 export function TranscriptPanel({
   transcripts,
   liveAsrText,
+  calibrationStatus,
   isRealAsrActive,
   asrStatusLabel,
   speakerStats,
@@ -25,6 +26,7 @@ export function TranscriptPanel({
 }: {
   transcripts: TranscriptLine[];
   liveAsrText: string;
+  calibrationStatus?: string;
   isRealAsrActive: boolean;
   asrStatusLabel: string;
   speakerStats: SpeakerStat[];
@@ -206,15 +208,21 @@ export function TranscriptPanel({
             <div className="transcript-text">{liveAsrText}</div>
           </article>
         )}
+        {calibrationStatus && (
+          <div className="transcript-calibration-status" role="status">
+            <span className="transcript-calibration-pulse" />
+            {calibrationStatus}
+          </div>
+        )}
         {[...filteredTranscripts].reverse().map((line, index) => {
           const color = getSpeakerColorFn(transcripts, line.speaker);
           const num = getSpeakerNumberFn(transcripts, line.speaker);
           return (
             <article
-              key={`${line.id}-${index}`}
+              key={(line as TranscriptLine & { presentationKey?: string }).presentationKey || `${line.id}-${index}`}
               id={`transcript-line-${line.id}`}
               data-transcript-time={line.time}
-              className={`transcript-line ${line.focus ? "active" : ""}`}
+              className={`transcript-line ${line.focus ? "active" : ""} ${(line as TranscriptLine & { recentlyCalibrated?: boolean }).recentlyCalibrated ? "was-calibrated" : ""}`}
             >
               <div className="transcript-meta">
                 <div className="sp-avatar-sm" style={{ background: color.bg }}>{num}</div>

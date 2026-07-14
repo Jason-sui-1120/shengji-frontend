@@ -63,6 +63,8 @@ export type TranscriptLine = {
   };
   speakerSource?: "embedding" | "diarization" | "local" | "manual" | "pending";
   speakerConfidence?: number;
+  audioStartMs?: number;
+  audioEndMs?: number;
   focus?: boolean;
 };
 
