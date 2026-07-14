@@ -7,6 +7,7 @@ import { getSpeakerOptions as getSpeakerOptionsFn, getSpeakerColor as getSpeaker
 export function TranscriptPanel({
   transcripts,
   liveAsrText,
+  calibrationStatus,
   isRealAsrActive,
   asrStatusLabel,
   speakerStats,
@@ -22,13 +23,12 @@ export function TranscriptPanel({
   onSpeakerMerge,
   onSpeakerDelete,
   onGlossaryCorrection,
-  calibrationStatus,
 }: {
   transcripts: TranscriptLine[];
   liveAsrText: string;
+  calibrationStatus?: string;
   isRealAsrActive: boolean;
   asrStatusLabel: string;
-  calibrationStatus?: string;
   speakerStats: SpeakerStat[];
   speakerEditingId: number | null;
   speakerDraft: string;
@@ -208,19 +208,26 @@ export function TranscriptPanel({
             <div className="transcript-text">{liveAsrText}</div>
           </article>
         )}
+        {calibrationStatus && (
+          <div className="transcript-calibration-status" role="status">
+            <span className="transcript-calibration-pulse" />
+            {calibrationStatus}
+          </div>
+        )}
         {[...filteredTranscripts].reverse().map((line, index) => {
+          const isRealtimePreview = Boolean(line.isRealtimePreview);
           const color = getSpeakerColorFn(transcripts, line.speaker);
           const num = getSpeakerNumberFn(transcripts, line.speaker);
           return (
             <article
-              key={`${line.id}-${index}`}
+              key={(line as TranscriptLine & { presentationKey?: string }).presentationKey || `${line.id}-${index}`}
               id={`transcript-line-${line.id}`}
               data-transcript-time={line.time}
-              className={`transcript-line ${line.focus ? "active" : ""}`}
+              className={`transcript-line ${line.focus ? "active" : ""} ${(line as TranscriptLine & { recentlyCalibrated?: boolean }).recentlyCalibrated ? "was-calibrated" : ""}`}
             >
               <div className="transcript-meta">
                 <div className="sp-avatar-sm" style={{ background: color.bg }}>{num}</div>
-                {speakerEditingId === line.id ? (
+                {speakerEditingId === line.id && !isRealtimePreview ? (
                   <input
                     aria-label="纠正发言人"
                     className="speaker-input"
@@ -237,8 +244,8 @@ export function TranscriptPanel({
                 ) : (
                   <span
                     className="speaker-tag"
-                    style={{ color: color.bg, cursor: "pointer" }}
-                    onClick={() => onSpeakerCorrectionStart(line)}
+                    style={{ color: color.bg, cursor: isRealtimePreview ? "default" : "pointer" }}
+                    onClick={isRealtimePreview ? undefined : () => onSpeakerCorrectionStart(line)}
                   >
                     {line.speaker}
                   </span>
@@ -274,7 +281,7 @@ export function TranscriptPanel({
                 ) : (
                   <>
                     <span>{line.text}</span>
-                    {onGlossaryCorrection && (
+                    {onGlossaryCorrection && !isRealtimePreview && (
                       <button
                         className="transcript-inline-action"
                         type="button"
@@ -303,7 +310,8 @@ export function TranscriptPanel({
 
 function TranscriptQualityBadges({ line }: { line: TranscriptLine }) {
   const badges: string[] = [];
-  if (line.stabilityStatus === "draft") badges.push("待稳定校准");
+  if (line.isRealtimePreview) badges.push("实时草稿");
+  else if (line.stabilityStatus === "draft") badges.push("待稳定校准");
   if (line.correctionApplied) badges.push("已校正");
   if (line.userEdited) badges.push("人工已编辑");
   else if (line.correctionSource === "huoshan-asr") badges.push("高质量校准");
