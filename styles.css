@@ -8048,6 +8048,29 @@ button {
   font-size: 14px;
   font-weight: 600;
   margin-bottom: 2px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.project-visibility-badge {
+  font-size: 10px;
+  font-weight: 500;
+  padding: 1px 6px;
+  border-radius: 3px;
+  line-height: 1.4;
+}
+
+.project-visibility-badge.private {
+  background: var(--surface-soft);
+  color: var(--muted);
+  border: 1px solid var(--line);
+}
+
+.project-visibility-badge.shared {
+  background: rgba(26, 102, 255, 0.1);
+  color: var(--blue);
+  border: 1px solid rgba(26, 102, 255, 0.2);
 }
 
 .project-list-meta {

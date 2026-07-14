@@ -136,6 +136,8 @@ export type Project = {
   name: string;
   count: number;
   active: boolean | number;
+  visibility?: "private" | "shared";
+  role?: "owner" | "member" | null;
 };
 
 export type GlossaryEntry = {
