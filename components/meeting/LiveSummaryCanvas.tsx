@@ -16,7 +16,9 @@ export function LiveSummaryCanvas({
   blocks: SummaryBlock[];
   transcripts?: TranscriptLine[];
 }) {
-  const topics = React.useMemo(() => groupSummaryTopics(blocks), [blocks]);
+  // 模型流式输出或旧数据偶尔会留下空壳 block。它们既没有标题也没有要点，
+  // 不应渲染成一张大白卡片，更不能占据话题时间轴。
+  const topics = React.useMemo(() => groupSummaryTopics(blocks.filter(hasSummaryContent)), [blocks]);
   const [topicMenuOpen, setTopicMenuOpen] = React.useState(false);
   const [menuPos, setMenuPos] = React.useState<{ top: number; left: number } | null>(null);
   const triggerRef = React.useRef<HTMLButtonElement | null>(null);
@@ -67,8 +69,9 @@ export function LiveSummaryCanvas({
     <div className="live-summary-canvas">
       {topics.length === 0 && (
         <div className="canvas-empty">
-          <div className="canvas-empty-icon">📋</div>
-          <p>开始录音后，AI 会按设定间隔自动总结，形成可跳转的话题与来源。</p>
+          <div className="canvas-empty-status"><i />正在建立本场会议脉络</div>
+          <p>首条稳定转写到达后，会自动归纳讨论主题、结论与待办候选。</p>
+          <div className="canvas-empty-lines" aria-hidden="true"><span /><span /><span /></div>
         </div>
       )}
 
@@ -169,6 +172,12 @@ export function LiveSummaryCanvas({
       )}
     </div>
   );
+}
+
+function hasSummaryContent(block: SummaryBlock) {
+  const title = block.title?.trim() || "";
+  const items = (block.items || []).some((item) => item?.trim());
+  return Boolean(title || items);
 }
 
 function groupSummaryTopics(blocks: SummaryBlock[]): SummaryTopic[] {
