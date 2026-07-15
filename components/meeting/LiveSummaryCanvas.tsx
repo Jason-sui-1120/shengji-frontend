@@ -175,9 +175,20 @@ export function LiveSummaryCanvas({
 }
 
 function hasSummaryContent(block: SummaryBlock) {
+  if (isLegacyPlaceholder(block)) return false;
   const title = block.title?.trim() || "";
   const items = (block.items || []).some((item) => item?.trim());
   return Boolean(title || items);
+}
+
+// 兼容已落库的早期占位数据。它们不是模型输出，不应作为会议主题展示。
+function isLegacyPlaceholder(block: SummaryBlock) {
+  const title = block.title?.trim();
+  const items = (block.items || []).filter((item) => item?.trim());
+  return (
+    (title === "等待分析" && items.length === 1 && items[0] === "点击右上角麦克风开始真实记录") ||
+    (title === "会议重点" && items.length === 1 && items[0] === "AI 分析后会按现场语音动态分类")
+  );
 }
 
 function groupSummaryTopics(blocks: SummaryBlock[]): SummaryTopic[] {
