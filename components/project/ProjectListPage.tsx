@@ -61,7 +61,11 @@ export function ProjectListPage({
                   {project.name.charAt(0)}
                 </div>
                 <div className="project-list-body">
-                  <div className="project-list-name">{project.name}</div>
+                  <div className="project-list-name">
+                    {project.name}
+                    {project.visibility === "private" && <span className="project-visibility-badge private" title="私有项目">私有</span>}
+                    {project.visibility === "shared" && <span className="project-visibility-badge shared" title="共享项目">共享</span>}
+                  </div>
                   <div className="project-list-meta">
                     {stats.meetingCount} 场会议 · 最近 {stats.lastMeeting ? formatDate(stats.lastMeeting) : "暂无"}
                   </div>
