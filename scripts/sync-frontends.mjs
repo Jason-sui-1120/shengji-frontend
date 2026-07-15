@@ -116,6 +116,9 @@ async function targetFileMap(target, sourceHashes) {
     } else if (source === "types.ts") {
       files["types.ts"] = { source, hash };
       files["shared/types.ts"] = { source, hash };
+    } else if (source === "models.json") {
+      // 共享模型配置：同步到两端仓库根目录
+      files["models.json"] = { source, hash };
     } else {
       files[`shared/${source}`] = { source, hash };
     }
