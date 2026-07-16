@@ -626,13 +626,27 @@ function ArchivePlaybackPanel({
   const [finalizedContentStale, setFinalizedContentStale] = React.useState(false);
   const audioRef = React.useRef<HTMLAudioElement | null>(null);
   const lastFollowedId = React.useRef<number | undefined>(undefined);
+  // 回放接口提供的是权威时间轴；若某次历史接口因缓存或兼容原因未返回
+  // cues，仍以转写行自身落库的绝对时间为兜底，不能让“点击一句”退化为从 0 秒播放。
+  const playbackCues = React.useMemo(() => {
+    const byId = new Map(cues.map((cue) => [cue.id, cue]));
+    for (const line of lines) {
+      if (byId.has(line.id)) continue;
+      const startSeconds = Number(line.audioStartMs || 0) / 1000;
+      const endSeconds = Number(line.audioEndMs || 0) / 1000;
+      if (Number.isFinite(startSeconds) && Number.isFinite(endSeconds) && endSeconds >= startSeconds) {
+        byId.set(line.id, { id: line.id, startSeconds: Math.max(0, startSeconds), endSeconds: Math.max(0, endSeconds) });
+      }
+    }
+    return [...byId.values()];
+  }, [cues, lines]);
   const targetId = React.useMemo(() => findTranscriptTarget(lines, target), [lines, target]);
   const activeId = React.useMemo(() => {
-    const current = cues
+    const current = playbackCues
       .filter((cue) => currentTime >= cue.startSeconds && currentTime <= cue.endSeconds)
       .sort((a, b) => b.startSeconds - a.startSeconds || a.endSeconds - b.endSeconds)[0];
     return current?.id || targetId;
-  }, [cues, currentTime, targetId]);
+  }, [playbackCues, currentTime, targetId]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -651,14 +665,14 @@ function ArchivePlaybackPanel({
   }, [meeting.meetingId]);
 
   React.useEffect(() => {
-    if (!targetId || !cues.length) return;
-    const cue = cues.find((item) => item.id === targetId);
+    if (!targetId || !playbackCues.length) return;
+    const cue = playbackCues.find((item) => item.id === targetId);
     if (!cue) return;
     const audio = audioRef.current;
     if (audio) audio.currentTime = cue.startSeconds;
     document.getElementById(`playback-line-${targetId}`)?.scrollIntoView({ block: "center", behavior: "smooth" });
     onClearTarget();
-  }, [targetId, cues, onClearTarget]);
+  }, [targetId, playbackCues, onClearTarget]);
 
   React.useEffect(() => {
     if (!activeId || activeId === lastFollowedId.current) return;
@@ -678,7 +692,7 @@ function ArchivePlaybackPanel({
   }, [isPlaying]);
 
   function seek(lineId: number) {
-    const cue = cues.find((item) => item.id === lineId);
+    const cue = playbackCues.find((item) => item.id === lineId);
     if (!cue || !audioRef.current) return;
     audioRef.current.currentTime = cue.startSeconds;
     void audioRef.current.play().catch(() => {});
