@@ -188,6 +188,7 @@ function AppInner() {
   const [finalizeMode, setFinalizeMode] = React.useState<"fast" | "deep">("fast");
   const [aiStatus, setAiStatus] = React.useState<"idle" | "running" | "done" | "error">("idle");
   const [finalizeStatus, setFinalizeStatus] = React.useState<"idle" | "running" | "done" | "error">("idle");
+  const [finalizeError, setFinalizeError] = React.useState("");
   const [finalizeStage, setFinalizeStage] = React.useState<"checklist" | "editor" | "done">("checklist");
   const [finalizeProjectId, setFinalizeProjectId] = React.useState<number | null>(null);
   const [moveActionsWithMeeting, setMoveActionsWithMeeting] = React.useState(true);
@@ -837,6 +838,7 @@ function AppInner() {
       return;
     }
     setFinalizeStatus("running");
+    setFinalizeError("");
     try {
       const selectedModel = finalizeMode === "fast" ? finalFastModel : finalModel;
       const targetMeetingId = finalDraftMeetingId ?? meeting.id;
@@ -850,14 +852,16 @@ function AppInner() {
       setFinalizeStatus("done");
       setFinalizeStage("editor");
       setFinalizeProjectId(projects.find((p) => p.name === result.draft?.projectName)?.id ?? null);
-    } catch {
+    } catch (error) {
       setFinalizeStatus("error");
+      setFinalizeError(error instanceof Error ? error.message : "生成草稿失败");
     }
   }
 
   async function saveFinalDraft() {
     if (!finalDraft) return;
     setFinalizeStatus("running");
+    setFinalizeError("");
     try {
       const targetMeetingId = finalDraftMeetingId ?? meeting.id;
       const result = await apiJson<{ ok: boolean; finalMinutes?: FinalizedMeeting; message?: string }>("/api/meetings/finalize", {
@@ -907,8 +911,9 @@ function AppInner() {
       setFinalDraftMeetingId(null);
       setFinalizeStatus("done");
       setFinalizeStage("done");
-    } catch {
+    } catch (error) {
       setFinalizeStatus("error");
+      setFinalizeError(error instanceof Error ? error.message : "确认归档失败");
     }
   }
 
@@ -1145,6 +1150,7 @@ function AppInner() {
       setNewMeetingOpen(false);
       setFinishOpen(false);
       setFinalizeStatus("idle");
+      setFinalizeError("");
       setFinalizeStage("checklist");
       setFinalDraft(null);
       setFinalizedMeeting(null);
@@ -2098,7 +2104,7 @@ function AppInner() {
             ) : (
               <FinishChecklist checks={finishChecks} />
             )}
-            {finalizeStatus === "error" && <p className="modal-error">归档失败，请稍后重试或检查模型接口。</p>}
+            {finalizeStatus === "error" && <p className="modal-error">{finalizeError || "归档失败，请稍后重试或检查模型接口。"}</p>}
             <div className="modal-actions">
               <button className="secondary-button" onClick={() => setFinishOpen(false)}>{finalizeStage === "done" ? "关闭" : "继续编辑"}</button>
               {finalizeStage === "done" && finalizedMeeting && (
