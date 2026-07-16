@@ -384,6 +384,7 @@ function AppInner() {
     // TODO: 统一搜索（项目/会议/待办/转写全文）将在信息架构改造完成后实现
   }
   const isRealAsrActive = isLiveAsrSessionActive(liveAsrStatus);
+  const isFinalSealPending = liveAsrStatus === "stopping";
   const asrStatusLabel = getLiveAsrStatusLabel(liveAsrStatus);
   const asrStatusTone = getLiveAsrStatusTone(liveAsrStatus);
   const asrStatusDetail = asrDisconnectInfo
@@ -441,9 +442,13 @@ function AppInner() {
   const finishChecks: FinishCheck[] = [
     {
       label: "录音状态",
-      value: isRealAsrActive ? "仍在记录" : "已停止",
-      detail: isRealAsrActive ? "生成草稿前会先停止当前录音。" : "可以直接进入会后整理。",
-      tone: isRealAsrActive ? "amber" : "green",
+      value: isRealAsrActive ? "仍在记录" : isFinalSealPending ? "尾段校准中" : "已停止",
+      detail: isRealAsrActive
+        ? "请先停止录音；系统会保存完整录音并校准尾段。"
+        : isFinalSealPending
+          ? "正在用完整录音完成最后一段稳定转写，完成后才能生成最终纪要。"
+          : "完整录音与稳定转写均已就绪，可以进入会后整理。",
+      tone: isRealAsrActive || isFinalSealPending ? "amber" : "green",
       actionLabel: isRealAsrActive ? "停止录音" : undefined,
       action: isRealAsrActive ? stopRealAsr : undefined,
     },
@@ -822,7 +827,15 @@ function AppInner() {
   }
 
   async function generateFinalDraft() {
-    if (isRealAsrActive) stopRealAsr();
+    if (isRealAsrActive) {
+      stopRealAsr();
+      pushToast("info", "录音已停止，正在完成尾段校准；完成后即可生成最终纪要。");
+      return;
+    }
+    if (isFinalSealPending) {
+      pushToast("info", "尾段稳定转写仍在生成，请完成后再生成最终纪要。");
+      return;
+    }
     setFinalizeStatus("running");
     try {
       const selectedModel = finalizeMode === "fast" ? finalFastModel : finalModel;
@@ -2153,9 +2166,19 @@ function AppInner() {
               <button
                 className="primary-button"
                 onClick={finalizeStage === "done" ? () => setFinishOpen(false) : finalizeStage === "editor" ? saveFinalDraft : generateFinalDraft}
-                disabled={finalizeStatus === "running"}
+                disabled={finalizeStatus === "running" || (finalizeStage === "checklist" && (isRealAsrActive || isFinalSealPending))}
               >
-                {finalizeStatus === "running" ? "处理中" : finalizeStage === "done" ? "完成" : finalizeStage === "editor" ? "确认归档" : "生成草稿"}
+                {finalizeStatus === "running"
+                  ? "处理中"
+                  : finalizeStage === "done"
+                    ? "完成"
+                    : finalizeStage === "editor"
+                      ? "确认归档"
+                      : isRealAsrActive
+                        ? "请先停止录音"
+                        : isFinalSealPending
+                          ? "正在完成尾段校准"
+                          : "生成草稿"}
               </button>
             </div>
           </div>
