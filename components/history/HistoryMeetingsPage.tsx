@@ -627,16 +627,46 @@ function ArchivePlaybackPanel({
   const audioRef = React.useRef<HTMLAudioElement | null>(null);
   const lastFollowedId = React.useRef<number | undefined>(undefined);
   // 转写行落库时的绝对时间与完整录音同源，优先级高于回放接口的派生 cue。
-  // 这也兼容旧后端曾返回同 id、但起点为 0/无效值的 cue：不能让它覆盖正确的
-  // audioStartMs，导致点击一句又退化为从 0 秒播放。
+  // 旧记录偶尔只保留了展示用时间（time），或保存了错误的 0 秒起点；因此还要
+  // 用展示时间校验两类机器时间轴，并在两者均异常时回退到展示时间，保证可回听。
   const playbackCues = React.useMemo(() => {
-    const byId = new Map(cues.map((cue) => [cue.id, cue]));
-    for (const line of lines) {
+    const parseDisplayTime = (value?: string): number | null => {
+      const parts = String(value || "").trim().split(":").map(Number);
+      if (parts.length < 2 || parts.length > 3 || parts.some((part) => !Number.isFinite(part) || part < 0)) return null;
+      return parts.length === 3
+        ? parts[0] * 3600 + parts[1] * 60 + parts[2]
+        : parts[0] * 60 + parts[1];
+    };
+    const isCompatibleWithDisplayTime = (startSeconds: number, endSeconds: number, displayStart: number | null) => {
+      if (!Number.isFinite(startSeconds) || !Number.isFinite(endSeconds) || endSeconds <= startSeconds) return false;
+      // time 是整秒显示，容忍正常的毫秒误差；超过两秒说明旧数据的时间轴不能用于定位。
+      return displayStart === null || displayStart <= 1 || Math.abs(startSeconds - displayStart) <= 2;
+    };
+
+    const byId = new Map(cues.map((cue) => [Number(cue.id), cue]));
+    const displayStarts = lines.map((line) => parseDisplayTime(line.time));
+    for (const [index, line] of lines.entries()) {
+      const lineId = Number(line.id);
+      const displayStart = displayStarts[index];
       const startSeconds = Number(line.audioStartMs || 0) / 1000;
       const endSeconds = Number(line.audioEndMs || 0) / 1000;
-      // 0-0 表示该行没有可用时间轴；正常的首句也可能从 0 开始，因此仅以结束时间判断。
-      if (Number.isFinite(startSeconds) && Number.isFinite(endSeconds) && endSeconds > startSeconds) {
-        byId.set(line.id, { id: line.id, startSeconds: Math.max(0, startSeconds), endSeconds: Math.max(0, endSeconds) });
+      const serverCue = byId.get(lineId);
+
+      if (isCompatibleWithDisplayTime(startSeconds, endSeconds, displayStart)) {
+        byId.set(lineId, { id: lineId, startSeconds: Math.max(0, startSeconds), endSeconds: Math.max(0, endSeconds) });
+        continue;
+      }
+      if (serverCue && isCompatibleWithDisplayTime(serverCue.startSeconds, serverCue.endSeconds, displayStart)) {
+        byId.set(lineId, serverCue);
+        continue;
+      }
+      if (displayStart !== null) {
+        const nextDisplayStart = displayStarts.slice(index + 1).find((value) => value !== null && value > displayStart);
+        byId.set(lineId, {
+          id: lineId,
+          startSeconds: displayStart,
+          endSeconds: nextDisplayStart ?? displayStart + 5,
+        });
       }
     }
     return [...byId.values()];
