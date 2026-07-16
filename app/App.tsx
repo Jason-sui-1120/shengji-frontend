@@ -1396,6 +1396,14 @@ function AppInner() {
             window.clearTimeout(sealTimeoutRef.current);
             sealTimeoutRef.current = null;
           }
+          // 最终文件 ASR 可能在最后一条实时稿之后才完成；结束录音时强制
+          // 拉一次最新状态，确保页面立即显示已经替换好的稳定稿。
+          try {
+            const state = await apiJson<ApiState>("/api/state");
+            applyApiState(state);
+          } catch {
+            // 网络短暂波动不应阻塞会话关闭；下次进入会议仍会从服务端加载。
+          }
           setLiveAsrStatus("idle");
           setLiveAsrText("");
           if (socket.readyState === WebSocket.OPEN) socket.close(1000, "meeting sealed");
