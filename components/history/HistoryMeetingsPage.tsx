@@ -626,15 +626,16 @@ function ArchivePlaybackPanel({
   const [finalizedContentStale, setFinalizedContentStale] = React.useState(false);
   const audioRef = React.useRef<HTMLAudioElement | null>(null);
   const lastFollowedId = React.useRef<number | undefined>(undefined);
-  // 回放接口提供的是权威时间轴；若某次历史接口因缓存或兼容原因未返回
-  // cues，仍以转写行自身落库的绝对时间为兜底，不能让“点击一句”退化为从 0 秒播放。
+  // 转写行落库时的绝对时间与完整录音同源，优先级高于回放接口的派生 cue。
+  // 这也兼容旧后端曾返回同 id、但起点为 0/无效值的 cue：不能让它覆盖正确的
+  // audioStartMs，导致点击一句又退化为从 0 秒播放。
   const playbackCues = React.useMemo(() => {
     const byId = new Map(cues.map((cue) => [cue.id, cue]));
     for (const line of lines) {
-      if (byId.has(line.id)) continue;
       const startSeconds = Number(line.audioStartMs || 0) / 1000;
       const endSeconds = Number(line.audioEndMs || 0) / 1000;
-      if (Number.isFinite(startSeconds) && Number.isFinite(endSeconds) && endSeconds >= startSeconds) {
+      // 0-0 表示该行没有可用时间轴；正常的首句也可能从 0 开始，因此仅以结束时间判断。
+      if (Number.isFinite(startSeconds) && Number.isFinite(endSeconds) && endSeconds > startSeconds) {
         byId.set(line.id, { id: line.id, startSeconds: Math.max(0, startSeconds), endSeconds: Math.max(0, endSeconds) });
       }
     }
