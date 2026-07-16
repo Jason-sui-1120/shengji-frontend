@@ -1417,6 +1417,11 @@ function AppInner() {
           } catch {
             // 网络短暂波动不应阻塞会话关闭；下次进入会议仍会从服务端加载。
           }
+          const fallbackCount = Number(message.fallbackCount || 0);
+          if (fallbackCount > 0) {
+            setCalibrationStatus(`尾段文件校准未完成，已保留并收口 ${fallbackCount} 条实时稿；完整录音仍可回听。`);
+            pushToast("info", "尾段已使用实时稿兜底收口");
+          }
           setLiveAsrStatus("idle");
           setLiveAsrText("");
           if (socket.readyState === WebSocket.OPEN) socket.close(1000, "meeting sealed");
