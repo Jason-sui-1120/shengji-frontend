@@ -210,7 +210,7 @@ if (options.check) {
     console.error(failures.map((failure) => `不同步：${failure}`).join("\n"));
     process.exit(2);
   }
-  console.log(`两端共享前端一致：${revision.slice(0, 12)}`);
+  console.log(`${targets.map((target) => target.kind).join("、")}共享前端一致：${revision.slice(0, 12)}`);
 } else {
   for (const target of targets) await syncTarget(target, revision, hashes);
 }
