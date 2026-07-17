@@ -645,8 +645,10 @@ function ArchivePlaybackPanel({
 
     const byId = new Map(cues.map((cue) => [Number(cue.id), cue]));
     const displayStarts = lines.map((line) => parseDisplayTime(line.time));
+    const validIds = new Set();
     for (const [index, line] of lines.entries()) {
       const lineId = Number(line.id);
+      validIds.add(lineId);
       const displayStart = displayStarts[index];
       const startSeconds = Number(line.audioStartMs || 0) / 1000;
       const endSeconds = Number(line.audioEndMs || 0) / 1000;
@@ -669,7 +671,8 @@ function ArchivePlaybackPanel({
         });
       }
     }
-    return [...byId.values()];
+    // 只返回 lines 中存在的 cue，过滤掉残留的脏 cue
+    return [...byId.values()].filter((cue) => validIds.has(Number(cue.id)));
   }, [cues, lines]);
   const targetId = React.useMemo(() => findTranscriptTarget(lines, target), [lines, target]);
   const activeId = React.useMemo(() => {
