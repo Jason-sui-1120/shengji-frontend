@@ -11,6 +11,7 @@ const execFileAsync = promisify(execFile);
 const sourceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const sharedEntries = ["app/App.tsx", "components", "lib", "styles.css", "types.ts"];
 const sourceName = "Jason-sui-1120/shengji-frontend";
+const guardSourcePath = resolve(sourceRoot, "scripts/verify-frontend-sync.mjs");
 
 function usage(message) {
   if (message) console.error(`错误：${message}\n`);
@@ -126,11 +127,12 @@ async function targetFileMap(target, sourceHashes) {
   return Object.fromEntries(Object.entries(files).sort(([left], [right]) => left.localeCompare(right)));
 }
 
-function metadata(revision, files, target) {
+function metadata(revision, files, target, guardHash) {
   return {
     schemaVersion: 1,
     source: sourceName,
     revision,
+    guardHash,
     layout: target.kind === "public" ? "src/shared components + src root assets" : "front/src",
     files: Object.fromEntries(Object.entries(files).map(([destination, item]) => [destination, item.hash])),
   };
@@ -150,7 +152,11 @@ async function syncTarget(target, revision, hashes) {
     if (item.content !== undefined) await writeFile(destinationPath, item.content);
     else await cp(resolve(sourceRoot, item.source), destinationPath);
   }
-  await writeFile(resolve(target.repo, "frontend-sync.json"), `${JSON.stringify(metadata(revision, files, target), null, 2)}\n`);
+  const guardPath = resolve(target.repo, "scripts/verify-frontend-sync.mjs");
+  await mkdir(dirname(guardPath), { recursive: true });
+  await cp(guardSourcePath, guardPath);
+  const guardHash = hashContent(await readFile(guardPath));
+  await writeFile(resolve(target.repo, "frontend-sync.json"), `${JSON.stringify(metadata(revision, files, target, guardHash), null, 2)}\n`);
   console.log(`已同步 ${target.kind}：${revision.slice(0, 12)}`);
 }
 
@@ -164,8 +170,12 @@ async function checkTarget(target, revision, hashes) {
     return `${target.kind} 的 frontend-sync.json 无法解析`;
   }
   const files = await targetFileMap(target, hashes);
+  const guardPath = resolve(target.repo, "scripts/verify-frontend-sync.mjs");
+  if (!await exists(guardPath)) return `${target.kind} 缺少 scripts/verify-frontend-sync.mjs`;
+  const guardHash = hashContent(await readFile(guardPath));
   if (saved.revision !== revision) return `${target.kind} 记录的共享版本不是 ${revision.slice(0, 12)}`;
-  if (JSON.stringify(saved.files) !== JSON.stringify(metadata(revision, files, target).files)) return `${target.kind} 的校验清单已过期`;
+  if (saved.guardHash !== guardHash) return `${target.kind} 的同步校验脚本不一致`;
+  if (JSON.stringify(saved.files) !== JSON.stringify(metadata(revision, files, target, guardHash).files)) return `${target.kind} 的校验清单已过期`;
   for (const [destination, item] of Object.entries(files)) {
     const path = resolve(target.destination, destination);
     if (!await exists(path)) return `${target.kind} 缺少 ${destination}`;
