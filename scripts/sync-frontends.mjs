@@ -16,6 +16,7 @@ const guardSourcePath = resolve(sourceRoot, "scripts/verify-frontend-sync.mjs");
 function usage(message) {
   if (message) console.error(`错误：${message}\n`);
   console.error("用法：node scripts/sync-frontends.mjs --public <公网仓库> --company <公司仓库> [--check] [--build]");
+  console.error("校验单端时可只传 --public 或 --company，例如：--public <仓库> --check");
   process.exit(1);
 }
 
@@ -29,7 +30,8 @@ function parseArgs(argv) {
     else if (arg === "--company") options.companyRepo = argv[++index] || "";
     else usage(`不认识的参数 ${arg}`);
   }
-  if (!options.publicRepo || !options.companyRepo) usage("必须同时提供 --public 和 --company");
+  if (!options.publicRepo && !options.companyRepo) usage("至少提供一个目标仓库");
+  if (!options.check && (!options.publicRepo || !options.companyRepo)) usage("同步或构建必须同时提供 --public 和 --company");
   return options;
 }
 
@@ -192,9 +194,9 @@ async function buildTarget(target) {
 
 const options = parseArgs(process.argv.slice(2));
 const targets = [
-  targetDefinition("public", options.publicRepo),
-  targetDefinition("company", options.companyRepo),
-];
+  options.publicRepo && targetDefinition("public", options.publicRepo),
+  options.companyRepo && targetDefinition("company", options.companyRepo),
+].filter(Boolean);
 
 for (const target of targets) await assertSafeTarget(target);
 if (await git(["status", "--porcelain"], sourceRoot)) usage("共享源码有未提交改动；请先提交，确保版本可追溯。");
