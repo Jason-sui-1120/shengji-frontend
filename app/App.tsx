@@ -1565,9 +1565,11 @@ function AppInner() {
       setLiveAsrText("录音已停止，正在保存并校准尾段...");
       sealTimeoutRef.current = window.setTimeout(() => {
         sealTimeoutRef.current = null;
-        if (ws.readyState === WebSocket.OPEN) ws.close(1000, "seal timeout");
-        setLiveAsrStatus("idle");
-        setLiveAsrText("");
+        // 尾段文件 ASR 仍在服务端收口时，不能把界面伪装成“已停止”。否则用户
+        // 会过早进入最终纪要，而后端又不得不拒绝请求。保持 WebSocket 等待 sealed，
+        // 只更新提示，最终状态仍以服务端 sealed 消息为准。
+        setLiveAsrText("尾段校准耗时较长，仍在后台继续。完成后将自动进入可归档状态。");
+        pushToast("info", "尾段转写仍在校准，请稍候生成最终纪要");
       }, 150_000);
       return;
     }

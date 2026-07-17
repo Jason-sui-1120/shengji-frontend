@@ -2,6 +2,7 @@
   "_comment": "共享模型配置 — 两端服务器的模型设置以此文件为准，通过 git 同步。env/config.json 中的同名配置会覆盖此文件（仅用于临时调试）。",
   "AIT_ASR_MODEL": "huoshanLM-realtime-asr",
   "AIT_ASR_ENDPOINT": "/audio/asr/stream",
+  "ROLLING_ASR_MODEL": "huoshan-asr",
   "AIT_CHAT_MODEL": "Qwen3.5-Flash",
   "AIT_FINAL_MODEL": "Qwen3.7-Max",
   "AIT_FINAL_FAST_MODEL": "Qwen3.5-Flash",

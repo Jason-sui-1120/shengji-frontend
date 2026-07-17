@@ -9,7 +9,7 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 const sourceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const sharedEntries = ["app/App.tsx", "components", "lib", "styles.css", "types.ts"];
+const sharedEntries = ["app/App.tsx", "components", "lib", "styles.css", "types.ts", "models.json"];
 const sourceName = "Jason-sui-1120/shengji-frontend";
 const guardSourcePath = resolve(sourceRoot, "scripts/verify-frontend-sync.mjs");
 
