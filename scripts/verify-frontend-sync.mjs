@@ -21,7 +21,9 @@ try {
   if (ownHash !== manifest.guardHash) throw new Error("同步校验脚本与清单不一致，请重新执行双端同步");
 
   for (const [relativePath, expectedHash] of Object.entries(manifest.files)) {
-    const fullPath = resolve(repoRoot, sourceDirectory, relativePath);
+    const fullPath = relativePath.startsWith("$root/")
+      ? resolve(repoRoot, relativePath.slice("$root/".length))
+      : resolve(repoRoot, sourceDirectory, relativePath);
     const actualHash = hash(await readFile(fullPath));
     if (actualHash !== expectedHash) throw new Error(`共享文件漂移：${sourceDirectory}/${relativePath}`);
   }
