@@ -200,6 +200,12 @@ function AppInner() {
   const [finalizedMeeting, setFinalizedMeeting] = React.useState<FinalizedMeeting | null>(null);
   const [finalDraft, setFinalDraft] = React.useState<FinalMinutesDraft | null>(null);
   const [finalDraftMeetingId, setFinalDraftMeetingId] = React.useState<number | null>(null);
+  const [finalizationGate, setFinalizationGate] = React.useState<{ checking: boolean; ready: boolean; status: string; message: string }>({
+    checking: false,
+    ready: false,
+    status: "unknown",
+    message: "正在确认录音与尾段稳定转写状态。",
+  });
   const [trashData, setTrashData] = React.useState<{ projects: any[]; meetings: any[]; actions: any[] }>({ projects: [], meetings: [], actions: [] });
   const [liveAsrStatus, setLiveAsrStatus] = React.useState<LiveAsrStatus>("idle");
   const [liveAsrText, setLiveAsrText] = React.useState("");
@@ -245,6 +251,7 @@ function AppInner() {
   const asrMeetingIdRef = React.useRef<number | null>(null);
   const reconnectTimerRef = React.useRef<number | null>(null);
   const sealTimeoutRef = React.useRef<number | null>(null);
+  const lastRollingFailureNoticeAtRef = React.useRef(0);
   const reconnectAttemptRef = React.useRef(0);
   const intentionalStopRef = React.useRef(false);
   const outlineBodyRef = React.useRef<HTMLDivElement | null>(null);
@@ -289,6 +296,24 @@ function AppInner() {
     lastAnalyzedTranscriptIdRef.current = state.transcripts.at(-1)?.id ?? 0;
     setEditingId(null);
     setSpeakerEditingId(null);
+  }
+
+  async function refreshFinalizationGate() {
+    const targetMeetingId = finalDraftMeetingId ?? meeting.id;
+    setFinalizationGate((current) => ({ ...current, checking: true }));
+    try {
+      const gate = await apiJson<{ ok: boolean; status?: string; message?: string }>(`/api/meetings/finalization-status?meetingId=${encodeURIComponent(String(targetMeetingId))}`);
+      setFinalizationGate({
+        checking: false,
+        ready: Boolean(gate.ok),
+        status: String(gate.status || "unknown"),
+        message: gate.ok ? "完整录音与稳定转写均已就绪，可以进入会后整理。" : (gate.message || "尾段稳定转写仍在收口。"),
+      });
+      return gate;
+    } catch {
+      setFinalizationGate({ checking: false, ready: false, status: "unknown", message: "暂时无法确认尾段状态，系统会自动重试。" });
+      return null;
+    }
   }
 
   React.useEffect(() => {
@@ -353,6 +378,21 @@ function AppInner() {
   }, [finishOpen, newMeetingOpen, newProjectOpen]);
 
   React.useEffect(() => {
+    if (!finishOpen || finalizeStage !== "checklist") return;
+    let disposed = false;
+    let timer: number | null = null;
+    const poll = async () => {
+      const gate = await refreshFinalizationGate();
+      if (!disposed && !gate?.ok) timer = window.setTimeout(poll, 2_000);
+    };
+    void poll();
+    return () => {
+      disposed = true;
+      if (timer) window.clearTimeout(timer);
+    };
+  }, [finishOpen, finalizeStage, meeting.id, finalDraftMeetingId]);
+
+  React.useEffect(() => {
     latestTranscriptIdRef.current = transcripts.at(-1)?.id ?? 0;
   }, [transcripts]);
 
@@ -385,7 +425,7 @@ function AppInner() {
     // TODO: 统一搜索（项目/会议/待办/转写全文）将在信息架构改造完成后实现
   }
   const isRealAsrActive = isLiveAsrSessionActive(liveAsrStatus);
-  const isFinalSealPending = liveAsrStatus === "stopping";
+  const isFinalSealPending = liveAsrStatus === "stopping" || (finishOpen && (finalizationGate.checking || !finalizationGate.ready));
   const asrStatusLabel = getLiveAsrStatusLabel(liveAsrStatus);
   const asrStatusTone = getLiveAsrStatusTone(liveAsrStatus);
   const asrStatusDetail = asrDisconnectInfo
@@ -446,9 +486,7 @@ function AppInner() {
       value: isRealAsrActive ? "仍在记录" : isFinalSealPending ? "尾段校准中" : "已停止",
       detail: isRealAsrActive
         ? "请先停止录音；系统会保存完整录音并校准尾段。"
-        : isFinalSealPending
-          ? "正在用完整录音完成最后一段稳定转写，完成后才能生成最终纪要。"
-          : "完整录音与稳定转写均已就绪，可以进入会后整理。",
+        : finalizationGate.message,
       tone: isRealAsrActive || isFinalSealPending ? "amber" : "green",
       actionLabel: isRealAsrActive ? "停止录音" : undefined,
       action: isRealAsrActive ? stopRealAsr : undefined,
@@ -833,8 +871,9 @@ function AppInner() {
       pushToast("info", "录音已停止，正在完成尾段校准；完成后即可生成最终纪要。");
       return;
     }
-    if (isFinalSealPending) {
-      pushToast("info", "尾段稳定转写仍在生成，请完成后再生成最终纪要。");
+    const gate = await refreshFinalizationGate();
+    if (!gate?.ok) {
+      pushToast("info", gate?.message || "正在确认尾段稳定转写状态，请稍后再试。");
       return;
     }
     setFinalizeStatus("running");
@@ -842,10 +881,26 @@ function AppInner() {
     try {
       const selectedModel = finalizeMode === "fast" ? finalFastModel : finalModel;
       const targetMeetingId = finalDraftMeetingId ?? meeting.id;
-      const result = await apiJson<{ ok: boolean; draft?: FinalMinutesDraft; message?: string }>("/api/meetings/finalize-draft", {
+      const started = await apiJson<{ ok: boolean; pending?: boolean; draft?: FinalMinutesDraft; message?: string }>("/api/meetings/finalize-draft", {
         method: "POST",
         body: JSON.stringify({ meetingId: targetMeetingId, model: selectedModel }),
       });
+      let result = started;
+      if (started.pending) {
+        const deadline = Date.now() + 12 * 60_000;
+        while (Date.now() < deadline) {
+          await new Promise((resolve) => window.setTimeout(resolve, 1500));
+          try {
+            const status = await apiJson<{ ok: boolean; pending?: boolean; draft?: FinalMinutesDraft; message?: string }>(`/api/meetings/finalize-draft/status?meetingId=${encodeURIComponent(String(targetMeetingId))}`);
+            if (!status.pending) {
+              result = status;
+              break;
+            }
+          } catch {
+            // 轮询瞬时网络错误不丢弃后台任务，下一轮继续读取结果。
+          }
+        }
+      }
       if (!result.ok || !result.draft) throw new Error(result.message || "draft failed");
       setFinalDraft(result.draft);
       setFinalDraftMeetingId(targetMeetingId);
@@ -1403,7 +1458,11 @@ function AppInner() {
         }
         if (type === "status" && message.status === "rolling_correction_failed") {
           setCalibrationStatus("本轮后台优化未完成，实时转写已保留，稍后会自动补齐。");
-          pushToast("info", "高质量校准暂未完成，已保留实时草稿");
+          // 后端重试、网络重放都可能带来同类状态；会议中每 30 秒最多提示一次。
+          if (Date.now() - lastRollingFailureNoticeAtRef.current >= 30_000) {
+            lastRollingFailureNoticeAtRef.current = Date.now();
+            pushToast("info", "高质量校准暂未完成，已保留实时草稿");
+          }
         }
         if (type === "status" && message.status === "sealed_pending_correction") {
           setLiveAsrStatus("stopping");
@@ -2179,7 +2238,7 @@ function AppInner() {
               <button
                 className="primary-button"
                 onClick={finalizeStage === "done" ? () => setFinishOpen(false) : finalizeStage === "editor" ? saveFinalDraft : generateFinalDraft}
-                disabled={finalizeStatus === "running" || (finalizeStage === "checklist" && (isRealAsrActive || isFinalSealPending))}
+                disabled={finalizeStatus === "running" || (finalizeStage === "checklist" && (isRealAsrActive || isFinalSealPending || finalizationGate.checking))}
               >
                 {finalizeStatus === "running"
                   ? "处理中"
@@ -2189,7 +2248,7 @@ function AppInner() {
                       ? "确认归档"
                       : isRealAsrActive
                         ? "请先停止录音"
-                        : isFinalSealPending
+                        : isFinalSealPending || finalizationGate.checking
                           ? "正在完成尾段校准"
                           : "生成草稿"}
               </button>
