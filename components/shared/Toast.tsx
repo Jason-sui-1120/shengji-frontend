@@ -16,17 +16,30 @@ const ToastContext = React.createContext<{
 export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [toasts, setToasts] = React.useState<Toast[]>([]);
   const nextIdRef = React.useRef(1);
+  // 不能只依赖 React state 去重：同一批 WebSocket 状态在一次渲染提交前
+  // 连续抵达时，多个回调会读到同一个旧 state，仍可能把完全相同的提示叠出来。
+  // 用 ref 作为同步的“在屏提示”索引，状态只是渲染结果。
+  const activeToastKeysRef = React.useRef(new Map<string, number>());
 
   const push = React.useCallback((tone: ToastTone, message: string) => {
+    const key = `${tone}\u0000${message}`;
+    if (activeToastKeysRef.current.has(key)) return;
     const id = nextIdRef.current++;
+    activeToastKeysRef.current.set(key, id);
     setToasts((current) => [...current, { id, tone, message }]);
     window.setTimeout(() => {
+      if (activeToastKeysRef.current.get(key) !== id) return;
+      activeToastKeysRef.current.delete(key);
       setToasts((current) => current.filter((item) => item.id !== id));
     }, 5000);
   }, []);
 
   const dismiss = React.useCallback((id: number) => {
-    setToasts((current) => current.filter((item) => item.id !== id));
+    setToasts((current) => {
+      const item = current.find((toast) => toast.id === id);
+      if (item) activeToastKeysRef.current.delete(`${item.tone}\u0000${item.message}`);
+      return current.filter((toast) => toast.id !== id);
+    });
   }, []);
 
   return (
