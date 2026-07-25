@@ -298,11 +298,18 @@ function AppInner() {
     setSpeakerEditingId(null);
   }
 
+  // 门禁持续不就绪超过 90 秒（典型是旧版本遗留的 recording 状态），
+  // 升级请求服务端强制兜底收口，避免归档弹窗永远停在“尾段校准中”。
+  const gateNotReadySinceRef = React.useRef(0);
+
   async function refreshFinalizationGate() {
     const targetMeetingId = finalDraftMeetingId ?? meeting.id;
     setFinalizationGate((current) => ({ ...current, checking: true }));
+    const forceTailFallback = gateNotReadySinceRef.current > 0 && Date.now() - gateNotReadySinceRef.current > 90_000;
     try {
-      const gate = await apiJson<{ ok: boolean; status?: string; message?: string }>(`/api/meetings/finalization-status?meetingId=${encodeURIComponent(String(targetMeetingId))}`);
+      const gate = await apiJson<{ ok: boolean; status?: string; message?: string }>(`/api/meetings/finalization-status?meetingId=${encodeURIComponent(String(targetMeetingId))}${forceTailFallback ? "&forceTailFallback=1" : ""}`);
+      if (gate.ok) gateNotReadySinceRef.current = 0;
+      else if (!gateNotReadySinceRef.current) gateNotReadySinceRef.current = Date.now();
       setFinalizationGate({
         checking: false,
         ready: Boolean(gate.ok),
