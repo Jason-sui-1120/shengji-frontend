@@ -1,5 +1,5 @@
 // 认证模式：公司版用 cas，GitHub 版用 mock（或 none）
-const AUTH_MODE = (import.meta as { env?: { VITE_AUTH_MODE?: string } }).env?.VITE_AUTH_MODE || "none";
+const AUTH_MODE = (import.meta as { env?: { VITE_AUTH_MODE?: string } }).env?.VITE_AUTH_MODE || "cas";
 
 export async function apiJson<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, {
