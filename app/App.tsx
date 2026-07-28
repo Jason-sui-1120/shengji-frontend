@@ -1347,11 +1347,15 @@ function AppInner() {
         processorRef.current = processor;
 
         processor.onaudioprocess = (event) => {
-          const ws = wsRef.current;
-          if (!ws || ws.readyState !== WebSocket.OPEN) return;
+          // 重连期间继续采集——PCM 进 pendingPcmRef 缓存，重连后补发。
+          // 不断采集：WebSocket 关闭只是发送通道断了，麦克风不能停。
           const input = event.inputBuffer.getChannelData(0);
-          updateEndpointing(ws, input);
-          sendPcm(float32ToPcm16(resample(input)));
+          const pcm = float32ToPcm16(resample(input));
+          const ws = wsRef.current;
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            updateEndpointing(ws, input);
+          }
+          sendPcm(pcm);  // sendPcm 内部判断 readyState，非 OPEN 时进 pendingPcmRef
         };
 
         source.connect(processor);
