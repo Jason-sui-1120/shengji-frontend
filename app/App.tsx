@@ -1369,6 +1369,10 @@ function AppInner() {
         setAsrDisconnectInfo(null);
         setLiveAsrStatus("connecting");
         setLiveAsrText("录音已开始，ASR 服务连接中...");
+        // 重连后从 /api/state 恢复累计会议时长——不从 0 开始（服务重启后 elapsed 被 useState(0) 重置）。
+        void apiJson<ApiState>("/api/state").then((state) => {
+          if (state.meeting?.elapsedSeconds !== undefined) setElapsed(state.meeting.elapsedSeconds);
+        }).catch(() => {});
         void startAudioPipeline().catch((error) => {
           setLiveAsrText(error instanceof Error ? `录音启动失败：${error.message}` : "录音启动失败");
           socket.close(1011, "audio pipeline error");
