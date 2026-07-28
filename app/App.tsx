@@ -181,8 +181,8 @@ function AppInner() {
   const [historyBlocks, setHistoryBlocks] = React.useState<HistoryBlockData[]>(historySeed);
   const [historyContext, setHistoryContext] = React.useState<HistoryContextSummary | null>(null);
   const [asrModels, setAsrModels] = React.useState<AsrModel[]>([]);
-  // 初始为空——从 /api/asr/models 读 state.asr.selected（权威配置），不硬编码兜底。
-  const [selectedAsrModel, setSelectedAsrModel] = React.useState("");
+  // 无用户模型选择 UI——ASR 模型始终用 AIT_ASR_MODEL 配置（models.json 权威值），
+  // 不需要 selectedAsrModel 状态。
   const [aiModel, setAiModel] = React.useState("Qwen3.5-Flash");
   const [finalModel, setFinalModel] = React.useState("Qwen3.7-Max");
   const [finalFastModel, setFinalFastModel] = React.useState("Qwen3.5-Flash");
@@ -283,9 +283,7 @@ function AppInner() {
     setHistoryBlocks(state.historyBlocks);
     setHistoryContext(state.historyContext ?? null);
     setAsrModels(state.asr.models);
-    // 权威配置：state.asr.selected（来自 models.json / AIT_ASR_MODEL）。
-    // 空则用第一个可用模型，不再硬编码 ke-stream-asr。
-    setSelectedAsrModel(state.asr.selected || state.asr.models[0]?.id || "");
+    // ASR 模型始终用 AIT_ASR_MODEL 配置，不需要 setSelectedAsrModel。
     setAiModel(state.ai?.selected ?? "Deepseek-V4-Flash");
     setFinalModel(state.ai?.finalModel ?? "Qwen3.7-Max");
     setFinalFastModel(state.ai?.finalFastModel ?? "Qwen3.5-Flash");
@@ -1294,11 +1292,9 @@ function AppInner() {
       streamRef.current = stream;
 
       const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-      // model 为空时不传参数——后端用 AIT_ASR_MODEL 配置（models.json 权威值），
-      // 不硬编码 ke-stream-asr 兜底。
-      const model = selectedAsrModel || asrModels[0]?.id || "";
-      const modelParam = model ? `&model=${encodeURIComponent(model)}` : "";
-      const socket = new WebSocket(`${protocol}://${window.location.host}/api/asr/live?meetingId=${targetMeetingId}${modelParam}`);
+      // 无用户模型选择 UI——前端不传 model 参数，后端直接用 AIT_ASR_MODEL 配置
+      // （models.json 权威值）。避免"前端读配置→传回后端→后端再用配置"的循环引用。
+      const socket = new WebSocket(`${protocol}://${window.location.host}/api/asr/live?meetingId=${targetMeetingId}`);
       socket.binaryType = "arraybuffer";
       wsRef.current = socket;
       let audioPipelineStarted = false;
