@@ -135,7 +135,7 @@ function metadata(revision, files, target, guardHash) {
     source: sourceName,
     revision,
     guardHash,
-    layout: target.kind === "public" ? "src/shared components + src root assets" : "front/src",
+    layout: target.kind === "public" ? "src/components + src root assets" : "front/src",
     files: Object.fromEntries(Object.entries(files).map(([destination, item]) => [destination, item.hash])),
   };
 }
@@ -143,7 +143,7 @@ function metadata(revision, files, target, guardHash) {
 async function syncTarget(target, revision, hashes) {
   await mkdir(target.destination, { recursive: true });
   const files = await targetFileMap(target, hashes);
-  const managedDirectories = target.kind === "public" ? ["shared/components", "shared/lib"] : ["components", "lib"];
+  const managedDirectories = target.kind === "public" ? ["components", "lib"] : ["components", "lib"];
   for (const directory of managedDirectories) {
     await rm(resolve(target.destination, directory), { recursive: true, force: true });
   }
