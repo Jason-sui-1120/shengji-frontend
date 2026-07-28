@@ -61,8 +61,6 @@ import {
   getSpeakerOptions,
   getSpeakerColor,
   getSpeakerNumber,
-  createFloat32Resampler,
-  float32ToPcm16,
   getRms,
   parseDownloadFileName,
 } from "./shared/lib";
@@ -241,7 +239,7 @@ function AppInner() {
   const wsRef = React.useRef<WebSocket | null>(null);
   const streamRef = React.useRef<MediaStream | null>(null);
   const audioContextRef = React.useRef<AudioContext | null>(null);
-  const processorRef = React.useRef<ScriptProcessorNode | null>(null);
+  const processorRef = React.useRef<AudioWorkletNode | null>(null);
   const sourceNextSampleRef = React.useRef<number | null>(null);
   const audioChunkSequenceRef = React.useRef(0);
   const pendingPcmRef = React.useRef<{ chunks: Int16Array[]; samples: number }>({ chunks: [], samples: 0 });
@@ -1340,27 +1338,29 @@ function AppInner() {
         const audioContext = new AudioContextCtor({ sampleRate: 16000 });
         audioContextRef.current = audioContext;
         const source = audioContext.createMediaStreamSource(stream);
-        const processor = audioContext.createScriptProcessor(4096, 1, 1);
-        const resample = createFloat32Resampler(audioContext.sampleRate, 16000);
-        const mute = audioContext.createGain();
-        mute.gain.value = 0;
-        processorRef.current = processor;
 
-        processor.onaudioprocess = (event) => {
-          // 重连期间继续采集——PCM 进 pendingPcmRef 缓存，重连后补发。
-          // 不断采集：WebSocket 关闭只是发送通道断了，麦克风不能停。
-          const input = event.inputBuffer.getChannelData(0);
-          const pcm = float32ToPcm16(resample(input));
+        // AudioWorklet 替代废弃的 ScriptProcessorNode——音频处理在专用线程，
+        // 不阻塞主线程（长转写列表渲染时不再抖动/漏帧）。
+        await audioContext.audioWorklet.addModule("/pcm-processor.js");
+        const workletNode = new AudioWorkletNode(audioContext, "pcm-processor");
+        processorRef.current = workletNode;
+
+        workletNode.port.onmessage = (event) => {
+          // 音频线程已转好 Int16 PCM——主线程只收数据，不处理音频。
+          const pcm = new Int16Array(event.data);
           const ws = wsRef.current;
           if (ws && ws.readyState === WebSocket.OPEN) {
-            updateEndpointing(ws, input);
+            // updateEndpointing 需要 Float32 原始数据——AudioWorklet 里已转 Int16，
+            // 这里用 PCM 转回 Float32 做 VAD（或后续把 VAD 也下沉到 AudioWorklet）。
+            const float32 = new Float32Array(pcm.length);
+            for (let i = 0; i < pcm.length; i += 1) float32[i] = pcm[i] / 0x8000;
+            updateEndpointing(ws, float32);
           }
           sendPcm(pcm);  // sendPcm 内部判断 readyState，非 OPEN 时进 pendingPcmRef
         };
 
-        source.connect(processor);
-        processor.connect(mute);
-        mute.connect(audioContext.destination);
+        source.connect(workletNode);
+        workletNode.connect(audioContext.destination);  // AudioWorklet 不需要 mute——独立线程不输出到扬声器
         if (audioContext.state === "suspended") await audioContext.resume();
       };
 
