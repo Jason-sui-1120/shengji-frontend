@@ -20,7 +20,7 @@ export function LiveSummaryCanvas({
   // 不应渲染成一张大白卡片，更不能占据话题时间轴。
   const topics = React.useMemo(() => groupSummaryTopics(blocks.filter(hasSummaryContent)), [blocks]);
   const [topicMenuOpen, setTopicMenuOpen] = React.useState(false);
-  const [menuPos, setMenuPos] = React.useState<{ top: number; left: number } | null>(null);
+  const [menuPos, setMenuPos] = React.useState<{ top?: number; bottom?: number; left: number } | null>(null);
   const triggerRef = React.useRef<HTMLButtonElement | null>(null);
 
   function toggleMenu() {
@@ -31,7 +31,18 @@ export function LiveSummaryCanvas({
     const el = triggerRef.current;
     if (el) {
       const rect = el.getBoundingClientRect();
-      setMenuPos({ top: rect.bottom + 6, left: rect.left });
+      const popoverMaxHeight = Math.min(window.innerHeight * 0.7, 520);
+      // 下拉框底部超出屏幕时向上展开（bottom 对齐触发按钮顶部），否则向下展开。
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const spaceAbove = rect.top;
+      if (spaceBelow < popoverMaxHeight && spaceAbove > spaceBelow) {
+        // 向上展开：bottom = 屏幕高度 - 触发按钮顶部 + 6px 间距
+        setMenuPos({ top: undefined, bottom: window.innerHeight - rect.top + 6, left: rect.left });
+      } else {
+        // 向下展开：top = 触发按钮底部 + 6px 间距，但不超出屏幕底部
+        const maxTop = window.innerHeight - popoverMaxHeight - 16;
+        setMenuPos({ top: Math.min(rect.bottom + 6, Math.max(16, maxTop)), bottom: undefined, left: rect.left });
+      }
     }
     setTopicMenuOpen(true);
   }
@@ -93,7 +104,7 @@ export function LiveSummaryCanvas({
           </div>
 
           {topicMenuOpen && menuPos && createPortal(
-            <div className="summary-topic-popover" role="menu" aria-label="实时总结话题" style={{ position: "fixed", top: menuPos.top, left: menuPos.left, zIndex: 9999 }}>
+            <div className="summary-topic-popover" role="menu" aria-label="实时总结话题" style={{ position: "fixed", top: menuPos.top, bottom: menuPos.bottom, left: menuPos.left, zIndex: 9999 }}>
               {topics.map((topic) => (
                 <div className="summary-topic-group-nav" key={topic.title}>
                   <button
