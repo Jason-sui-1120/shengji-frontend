@@ -36,8 +36,9 @@ export function LiveSummaryCanvas({
       const spaceBelow = window.innerHeight - rect.bottom;
       const spaceAbove = rect.top;
       if (spaceBelow < popoverMaxHeight && spaceAbove > spaceBelow) {
-        // 向上展开：bottom = 屏幕高度 - 触发按钮顶部 + 6px 间距
-        setMenuPos({ top: undefined, bottom: window.innerHeight - rect.top + 6, left: rect.left });
+        // 向上展开：bottom = 屏幕高度 - 触发按钮顶部 + 6px 间距，但不超出屏幕顶部
+        const maxBottom = window.innerHeight - popoverMaxHeight - 16;
+        setMenuPos({ top: undefined, bottom: Math.min(window.innerHeight - rect.top + 6, Math.max(16, maxBottom)), left: rect.left });
       } else {
         // 向下展开：top = 触发按钮底部 + 6px 间距，但不超出屏幕底部
         const maxTop = window.innerHeight - popoverMaxHeight - 16;
