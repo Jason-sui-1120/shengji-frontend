@@ -1392,6 +1392,13 @@ function AppInner() {
           flushPendingPcm();
           return;
         }
+        if (type === "status" && message.status === "audio_offset") {
+          // 后端定期发送当前音频偏移量（累计会议时长）——前端 elapsed 用这个值，
+          // 不依赖 /api/state 的 elapsedSeconds（录音过程中不更新，只有 pause/seal 才写）。
+          const offsetMs = Number(message.audioOffsetMs || 0);
+          if (offsetMs > 0) setElapsed(Math.floor(offsetMs / 1000));
+          return;
+        }
         if (type === "status" && message.status === "source_audio_chunk_rejected") {
           setLiveAsrText("录音块校验失败，正在安全重连...");
           socket.close(1011, "source audio chunk rejected");
