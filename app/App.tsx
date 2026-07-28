@@ -1957,7 +1957,13 @@ function AppInner() {
             >
               {isRealAsrActive ? <Square size={17} /> : <Mic size={17} />}
             </button>
-            <button className="primary-button" onClick={() => { setFinalizeStage("checklist"); setFinalizeProjectId(projects.find((p) => p.name === meeting.projectName)?.id ?? null); setFinishOpen(true); }}>结束会议</button>
+            <button className="primary-button" onClick={() => {
+              // 还在录音时先自动停止——不强制用户先点"停止录音"再点"结束会议"（交互太麻烦）。
+              if (isRealAsrActive) stopRealAsr();
+              setFinalizeStage("checklist");
+              setFinalizeProjectId(projects.find((p) => p.name === meeting.projectName)?.id ?? null);
+              setFinishOpen(true);
+            }}>结束会议</button>
           </div>
         </header>
 
