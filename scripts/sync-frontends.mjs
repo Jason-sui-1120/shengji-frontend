@@ -108,9 +108,8 @@ async function targetFileMap(target, sourceHashes) {
   for (const [source, hash] of Object.entries(sourceHashes)) {
     if (source === "app/App.tsx") {
       const sourceContent = await readFile(resolve(sourceRoot, source), "utf8");
-      const content = target.kind === "company"
-        ? sourceContent.replaceAll('"./shared/', '"./').replaceAll("'./shared/", "'./")
-        : sourceContent;
+      // 两端统一：./shared/ → ./（公司端/公网端目录结构一致，不套 shared/ 层）。
+      const content = sourceContent.replaceAll('"./shared/', '"./').replaceAll("'./shared/", "'./");
       files["App.tsx"] = { source, hash: hashContent(content), content };
     } else if (source === "models.json") {
       // 共享模型配置由服务端从仓库根目录加载，不属于前端 src。
@@ -121,9 +120,9 @@ async function targetFileMap(target, sourceHashes) {
       files["styles.css"] = { source, hash };
     } else if (source === "types.ts") {
       files["types.ts"] = { source, hash };
-      files["shared/types.ts"] = { source, hash };
     } else {
-      files[`shared/${source}`] = { source, hash };
+      // 公网端与公司端统一：components/lib 直接映射到 src/，不套 shared/ 层。
+      files[source] = { source, hash };
     }
   }
   return Object.fromEntries(Object.entries(files).sort(([left], [right]) => left.localeCompare(right)));
