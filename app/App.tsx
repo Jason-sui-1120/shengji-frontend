@@ -66,24 +66,24 @@ import {
 } from "./shared/lib";
 import {
   NavItem,
-} from "./shared/components/shared/Common";
-import { ToastProvider, useToast } from "./shared/components/shared/Toast";
-import { MeetingFlowBar } from "./shared/components/shared/MeetingFlowBar";
-import { TranscriptPanel } from "./shared/components/meeting/TranscriptPanel";
-import { LiveSummaryCanvas } from "./shared/components/meeting/LiveSummaryCanvas";
-import { LiveDiscussionPanel } from "./shared/components/meeting/LiveDiscussionPanel";
-import { ActionItemsTab } from "./shared/components/meeting/ActionItemsTab";
-import { HistoryContextTab } from "./shared/components/meeting/HistoryContextTab";
-import { HomePage } from "./shared/components/home/HomePage";
-import { ActionsPage } from "./shared/components/actions/ActionsPage";
-import { HistoryMeetingsPage } from "./shared/components/history/HistoryMeetingsPage";
-import { GlossaryPage } from "./shared/components/glossary/GlossaryPage";
-import { ProjectWorkspacePage } from "./shared/components/project/ProjectWorkspacePage";
-import { ProjectListPage } from "./shared/components/project/ProjectListPage";
-import { FinishChecklist } from "./shared/components/finalize/FinishChecklist";
-import { FinalizedComplete } from "./shared/components/finalize/FinalizedComplete";
-import { FinalDraftEditor } from "./shared/components/finalize/FinalDraftEditor";
-import { TodoDrawer } from "./shared/components/shared/TodoDrawer";
+} from "./components/shared/Common";
+import { ToastProvider, useToast } from "./components/shared/Toast";
+import { MeetingFlowBar } from "./components/shared/MeetingFlowBar";
+import { TranscriptPanel } from "./components/meeting/TranscriptPanel";
+import { LiveSummaryCanvas } from "./components/meeting/LiveSummaryCanvas";
+import { LiveDiscussionPanel } from "./components/meeting/LiveDiscussionPanel";
+import { ActionItemsTab } from "./components/meeting/ActionItemsTab";
+import { HistoryContextTab } from "./components/meeting/HistoryContextTab";
+import { HomePage } from "./components/home/HomePage";
+import { ActionsPage } from "./components/actions/ActionsPage";
+import { HistoryMeetingsPage } from "./components/history/HistoryMeetingsPage";
+import { GlossaryPage } from "./components/glossary/GlossaryPage";
+import { ProjectWorkspacePage } from "./components/project/ProjectWorkspacePage";
+import { ProjectListPage } from "./components/project/ProjectListPage";
+import { FinishChecklist } from "./components/finalize/FinishChecklist";
+import { FinalizedComplete } from "./components/finalize/FinalizedComplete";
+import { FinalDraftEditor } from "./components/finalize/FinalDraftEditor";
+import { TodoDrawer } from "./components/shared/TodoDrawer";
 
 type PresentationTranscriptLine = TranscriptLine & {
   presentationKey?: string;
