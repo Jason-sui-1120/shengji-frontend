@@ -448,7 +448,11 @@ function AppInner() {
   const speakerStats = getSpeakerStats(transcripts);
   const displayTranscripts = React.useMemo(() => [...transcripts, ...realtimeTimelineSegments]
     // 已持久化的实时行或稳定行一到，就接管相同时间区间的临时预览。
-    .filter((line) => line.isRealtimePreview || !realtimeTimelineSegments.some((preview) => hasTimelineOverlap(preview, line)))
+    // 只过滤与 preview 完全同一时间窗的持久化转写（audioStartMs/audioEndMs 都相等），
+    // 不过滤部分重叠的——避免旧 preview 错误过滤新转写（"实时转写没显示"的根因）。
+    .filter((line) => line.isRealtimePreview || !realtimeTimelineSegments.some((preview) =>
+      Number(preview.audioStartMs || 0) === Number(line.audioStartMs || 0)
+      && Number(preview.audioEndMs || 0) === Number(line.audioEndMs || 0)))
     .sort((left, right) => Number(left.audioStartMs || 0) - Number(right.audioStartMs || 0) || left.id - right.id), [transcripts, realtimeTimelineSegments]);
   const selectedProjectData = projects.find((project) => project.name === selectedProject) ?? projects[0];
   const selectedProjectArchives = finalizedMeetings.filter((archive) => archive.projectName === selectedProject);
