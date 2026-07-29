@@ -1382,7 +1382,7 @@ function AppInner() {
         }).catch(() => {});
         void startAudioPipeline().catch((error) => {
           setLiveAsrText(error instanceof Error ? `录音启动失败：${error.message}` : "录音启动失败");
-          socket.close(1011, "audio pipeline error");
+          socket.close(3000, "audio pipeline error");
         });
       };
 
@@ -1408,7 +1408,7 @@ function AppInner() {
         }
         if (type === "status" && message.status === "source_audio_chunk_rejected") {
           setLiveAsrText("录音块校验失败，正在安全重连...");
-          socket.close(1011, "source audio chunk rejected");
+          socket.close(3000, "source audio chunk rejected");
           return;
         }
         if (type === "status" && message.status === "connected") {
@@ -1530,7 +1530,7 @@ function AppInner() {
         if (type === "error") {
           const msg = (message.message as string) || "";
           setLiveAsrText(msg ? `ASR 连接异常：${msg}` : "ASR 连接异常，正在尝试恢复...");
-          socket.close(1011, "asr error");
+          socket.close(3000, "asr error");
         }
         if (type === "transcript.error") {
           const reason = (message.reason as string) || "";
