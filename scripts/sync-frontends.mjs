@@ -132,7 +132,7 @@ function metadata(revision, files, target, guardHash) {
   return {
     schemaVersion: 1,
     source: sourceName,
-    revision,
+    revision: revision || "", // revision 为 null（非 git 仓库）时用空字符串（checkTarget 的 files 对比不依赖 revision）
     guardHash,
     layout: target.kind === "public" ? "src/components + src root assets" : "front/src",
     files: Object.fromEntries(Object.entries(files).map(([destination, item]) => [destination, item.hash])),
@@ -180,7 +180,8 @@ async function checkTarget(target, revision, hashes) {
   const guardPath = resolve(target.repo, "scripts/verify-frontend-sync.mjs");
   if (!await exists(guardPath)) return `${target.kind} 缺少 scripts/verify-frontend-sync.mjs`;
   const guardHash = hashContent(await readFile(guardPath));
-  if (saved.revision !== revision) return `${target.kind} 记录的共享版本不是 ${revision.slice(0, 12)}`;
+  // revision 为 null（非 git 仓库且无环境变量）——跳过 revision 校验，只校验文件哈希
+  if (revision !== null && saved.revision !== revision) return `${target.kind} 记录的共享版本不是 ${revision.slice(0, 12)}`;
   if (saved.guardHash !== guardHash) return `${target.kind} 的同步校验脚本不一致`;
   if (JSON.stringify(saved.files) !== JSON.stringify(metadata(revision, files, target, guardHash).files)) return `${target.kind} 的校验清单已过期`;
   for (const [destination, item] of Object.entries(files)) {
@@ -205,18 +206,19 @@ const targets = [
 
 for (const target of targets) await assertSafeTarget(target);
 
-// tarball 解压的目录不是 git 仓库——从 frontend-sync.json 读 revision（不跑 git 命令）。
+// tarball 解压的目录不是 git 仓库——从环境变量 FRONTEND_REVISION 读 revision（CI 里 gh api 读的），
+// 或跳过 revision 校验（只校验文件哈希，revision 从消费端 frontend-sync.json 读）。
 let revision;
 const isGitRepo = await git(["rev-parse", "--git-dir"], sourceRoot).then(() => true).catch(() => false);
 if (isGitRepo) {
   if (await git(["status", "--porcelain"], sourceRoot)) usage("共享源码有未提交改动；请先提交，确保版本可追溯。");
   revision = await git(["rev-parse", "HEAD"], sourceRoot);
+} else if (process.env.FRONTEND_REVISION) {
+  // CI 里 gh api 读的 shengji-frontend 最新提交
+  revision = process.env.FRONTEND_REVISION;
 } else {
-  // 非 git 仓库（tarball 解压）——从 frontend-sync.json 读 revision
-  const manifestPath = resolve(sourceRoot, "frontend-sync.json");
-  const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
-  revision = manifest.revision;
-  if (!revision) usage("frontend-sync.json 缺少 revision 字段；非 git 仓库时必须提供。");
+  // 非 git 仓库且无环境变量——跳过 revision 校验（只校验文件哈希，revision 从消费端 frontend-sync.json 读）
+  revision = null;
 }
 const hashes = await sharedFileHashes();
 
@@ -226,7 +228,7 @@ if (options.check) {
     console.error(failures.map((failure) => `不同步：${failure}`).join("\n"));
     process.exit(2);
   }
-  console.log(`${targets.map((target) => target.kind).join("、")}共享前端一致：${revision.slice(0, 12)}`);
+  console.log(`${targets.map((target) => target.kind).join("、")}共享前端一致：${revision ? revision.slice(0, 12) : "哈希校验"}`);
 } else {
   for (const target of targets) await syncTarget(target, revision, hashes);
 }
