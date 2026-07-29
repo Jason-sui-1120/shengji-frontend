@@ -1341,22 +1341,29 @@ function AppInner() {
 
         // AudioWorklet 替代废弃的 ScriptProcessorNode——音频处理在专用线程，
         // 不阻塞主线程（长转写列表渲染时不再抖动/漏帧）。
-        await audioContext.audioWorklet.addModule("/pcm-processor.js");
+        // 用 import.meta.env.BASE_URL 拼 Worklet URL——部署到 /voice/ 等子路径时不硬编码根路径。
+        const workletUrl = `${import.meta.env.BASE_URL || "/"}pcm-processor.js`;
+        await audioContext.audioWorklet.addModule(workletUrl);
         const workletNode = new AudioWorkletNode(audioContext, "pcm-processor");
         processorRef.current = workletNode;
 
         workletNode.port.onmessage = (event) => {
-          // 音频线程已转好 Int16 PCM——主线程只收数据，不处理音频。
-          const pcm = new Int16Array(event.data);
-          const ws = wsRef.current;
-          if (ws && ws.readyState === WebSocket.OPEN) {
-            // updateEndpointing 需要 Float32 原始数据——AudioWorklet 里已转 Int16，
-            // 这里用 PCM 转回 Float32 做 VAD（或后续把 VAD 也下沉到 AudioWorklet）。
-            const float32 = new Float32Array(pcm.length);
-            for (let i = 0; i < pcm.length; i += 1) float32[i] = pcm[i] / 0x8000;
-            updateEndpointing(ws, float32);
+          // 音频线程已转好 Int16 PCM + VAD 事件——主线程只收数据，不处理音频/VAD。
+          const msg = event.data;
+          if (msg.type === "pcm") {
+            const pcm = new Int16Array(msg.data);
+            sendPcm(pcm);  // sendPcm 内部判断 readyState，非 OPEN 时进 pendingPcmRef
+          } else if (msg.type === "vad.speech_start") {
+            const ws = wsRef.current;
+            if (ws && ws.readyState === WebSocket.OPEN) {
+              ws.send(JSON.stringify({ type: "vad.speech_start" }));
+            }
+          } else if (msg.type === "vad.endpoint") {
+            const ws = wsRef.current;
+            if (ws && ws.readyState === WebSocket.OPEN) {
+              ws.send(JSON.stringify({ type: "vad.endpoint", reason: msg.reason }));
+            }
           }
-          sendPcm(pcm);  // sendPcm 内部判断 readyState，非 OPEN 时进 pendingPcmRef
         };
 
         source.connect(workletNode);
@@ -1666,6 +1673,8 @@ function AppInner() {
   }
 
   function cleanupAudio(options: { preserveSocket?: boolean } = {}) {
+    // 资源释放：关闭 Worklet port、断开节点、关闭 AudioContext。
+    processorRef.current?.port.close();
     processorRef.current?.disconnect();
     processorRef.current = null;
     audioContextRef.current?.close().catch(() => undefined);
