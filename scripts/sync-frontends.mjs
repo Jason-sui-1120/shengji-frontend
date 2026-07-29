@@ -204,9 +204,20 @@ const targets = [
 ].filter(Boolean);
 
 for (const target of targets) await assertSafeTarget(target);
-if (await git(["status", "--porcelain"], sourceRoot)) usage("共享源码有未提交改动；请先提交，确保版本可追溯。");
 
-const revision = await git(["rev-parse", "HEAD"], sourceRoot);
+// tarball 解压的目录不是 git 仓库——从 frontend-sync.json 读 revision（不跑 git 命令）。
+let revision;
+const isGitRepo = await git(["rev-parse", "--git-dir"], sourceRoot).then(() => true).catch(() => false);
+if (isGitRepo) {
+  if (await git(["status", "--porcelain"], sourceRoot)) usage("共享源码有未提交改动；请先提交，确保版本可追溯。");
+  revision = await git(["rev-parse", "HEAD"], sourceRoot);
+} else {
+  // 非 git 仓库（tarball 解压）——从 frontend-sync.json 读 revision
+  const manifestPath = resolve(sourceRoot, "frontend-sync.json");
+  const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+  revision = manifest.revision;
+  if (!revision) usage("frontend-sync.json 缺少 revision 字段；非 git 仓库时必须提供。");
+}
 const hashes = await sharedFileHashes();
 
 if (options.check) {
