@@ -1435,7 +1435,30 @@ function AppInner() {
           reconnectAttemptRef.current = 0;
           setAsrDisconnectInfo(null);
           setLiveAsrStatus("recording");
-          setLiveAsrText("真实麦克风识别中...");
+          // P0：started 只表示上游接受了 StartTranscription，不代表识别可用——
+          // 只有收到 first_asr_result 后才显示"正在实时识别"。
+          setLiveAsrText("识别服务已启动，正在等待首个结果...");
+          return;
+        }
+        // P0：端到端可观测状态——首帧 PCM 已收到
+        if (type === "status" && message.status === "first_pcm_received") {
+          setLiveAsrText("已收到音频，正在进入识别服务...");
+          return;
+        }
+        // P0：端到端可观测状态——首帧 PCM 已发送上游
+        if (type === "status" && message.status === "first_pcm_sent_upstream") {
+          setLiveAsrText("音频已发送识别服务，正在等待首个结果...");
+          return;
+        }
+        // P0：端到端可观测状态——首帧 ASR 结果
+        if (type === "status" && message.status === "first_asr_result") {
+          setLiveAsrText("正在实时识别...");
+          return;
+        }
+        // P0：端到端可观测状态——12 秒无 ASR 结果
+        if (type === "status" && message.status === "asr_no_first_result") {
+          setLiveAsrText("识别服务未返回结果，正在重试...");
+          setAsrDisconnectInfo({ reason: "asr_no_first_result", model: message.model, taskId: message.taskId });
           return;
         }
         if (type === "transcript.partial") {
