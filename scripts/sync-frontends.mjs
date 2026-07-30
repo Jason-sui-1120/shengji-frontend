@@ -9,7 +9,7 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 const sourceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const sharedEntries = ["app/App.tsx", "components", "lib", "styles.css", "types.ts", "models.json"];
+const sharedEntries = ["app/App.tsx", "components", "lib", "styles.css", "types.ts", "models.json", "public/pcm-processor.js"];
 const sourceName = "Jason-sui-1120/shengji-frontend";
 const guardSourcePath = resolve(sourceRoot, "scripts/verify-frontend-sync.mjs");
 
@@ -85,8 +85,8 @@ async function sharedFileHashes() {
 function targetDefinition(kind, repoPath) {
   const repo = resolve(repoPath);
   return kind === "public"
-    ? { kind, repo, destination: resolve(repo, "src"), buildCwd: repo }
-    : { kind, repo, destination: resolve(repo, "front/src"), buildCwd: resolve(repo, "front") };
+    ? { kind, repo, destination: resolve(repo, "src"), publicDir: resolve(repo, "public"), buildCwd: repo }
+    : { kind, repo, destination: resolve(repo, "front/src"), publicDir: resolve(repo, "front/public"), buildCwd: resolve(repo, "front") };
 }
 
 async function assertSafeTarget(target) {
@@ -114,6 +114,9 @@ async function targetFileMap(target, sourceHashes) {
     } else if (source === "models.json") {
       // 共享模型配置由服务端从仓库根目录加载，不属于前端 src。
       files["$root/models.json"] = { source, hash };
+    } else if (source === "public/pcm-processor.js") {
+      // AudioWorklet 是 Vite public 静态资源，必须与 App.tsx 的消息协议一起同步。
+      files["$public/pcm-processor.js"] = { source, hash };
     } else if (target.kind === "company") {
       files[source] = { source, hash };
     } else if (source === "styles.css") {
@@ -162,9 +165,9 @@ async function syncTarget(target, revision, hashes) {
 }
 
 function resolveTargetFile(target, destination) {
-  return destination.startsWith("$root/")
-    ? resolve(target.repo, destination.slice("$root/".length))
-    : resolve(target.destination, destination);
+  if (destination.startsWith("$root/")) return resolve(target.repo, destination.slice("$root/".length));
+  if (destination.startsWith("$public/")) return resolve(target.publicDir, destination.slice("$public/".length));
+  return resolve(target.destination, destination);
 }
 
 async function checkTarget(target, revision, hashes) {
