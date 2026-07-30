@@ -49,7 +49,8 @@ export function HomePage({
   onUpdateAction?: (action: ActionBacklogItem, patch: { status?: ActionStatus; due?: string }) => void;
 }) {
   const isFinalized = finalizedMeeting?.meetingId === meeting?.id;
-  const hasActiveMeeting = !isFinalized && (isRealAsrActive || (meeting && elapsed > 0) || (transcripts.length > 0));
+  // P0：meeting.status === "recording" 也算进行中会议（刷新后 elapsed/transcripts 可能还是 0，但 status 是 recording）
+  const hasActiveMeeting = !isFinalized && (isRealAsrActive || meeting?.status === "recording" || (meeting && elapsed > 0) || (transcripts.length > 0));
   const recentMeetings = finalizedMeetings.slice(0, 3);
   const openActions = actionBacklog.filter(isOpenAction);
 
