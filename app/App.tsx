@@ -1354,7 +1354,11 @@ function AppInner() {
         workletNode.port.onmessage = (event) => {
           // 音频线程已转好 Int16 PCM + VAD 事件——主线程只收数据，不处理音频/VAD。
           const msg = event.data;
-          if (msg.type === "pcm") {
+          // 兼容浏览器仍缓存旧版 pcm-processor.js 时直接传来的 ArrayBuffer；
+          // 新协议统一使用 { type: "pcm", data }，两种格式都不得静默丢音。
+          if (msg instanceof ArrayBuffer) {
+            sendPcm(new Int16Array(msg));
+          } else if (msg?.type === "pcm" && msg.data instanceof ArrayBuffer) {
             const pcm = new Int16Array(msg.data);
             sendPcm(pcm);  // sendPcm 内部判断 readyState，非 OPEN 时进 pendingPcmRef
           } else if (msg.type === "vad.speech_start") {
