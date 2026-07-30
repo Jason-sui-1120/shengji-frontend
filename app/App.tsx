@@ -1458,7 +1458,7 @@ function AppInner() {
         // P0：端到端可观测状态——12 秒无 ASR 结果
         if (type === "status" && message.status === "asr_no_first_result") {
           setLiveAsrText("识别服务未返回结果，正在重试...");
-          setAsrDisconnectInfo({ reason: "asr_no_first_result", model: message.model, taskId: message.taskId });
+          setAsrDisconnectInfo({ code: 0, reason: "asr_no_first_result", at: new Date().toISOString(), attempt: 0 });
           return;
         }
         if (type === "transcript.partial") {
