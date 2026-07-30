@@ -327,6 +327,10 @@ function AppInner() {
       .then((state) => {
         applyApiState(state);
         setDbStatus("ready");
+        // P0：刷新后根据 meeting.status 自动切换视图——recording 时切换到 meeting 视图
+        if (state.meeting?.status === "recording" && state.meeting.id > 0) {
+          setActiveView("meeting");
+        }
       })
       .catch(() => setDbStatus("offline"));
   }, []);
