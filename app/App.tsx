@@ -1375,21 +1375,6 @@ function AppInner() {
         if (audioContext.state === "suspended") await audioContext.resume();
       };
 
-      socket.onopen = () => {
-        reconnectAttemptRef.current = 0;
-        setAsrDisconnectInfo(null);
-        setLiveAsrStatus("connecting");
-        setLiveAsrText("录音已开始，ASR 服务连接中...");
-        // 重连后从 /api/state 恢复累计会议时长——不从 0 开始（服务重启后 elapsed 被 useState(0) 重置）。
-        void apiJson<ApiState>("/api/state").then((state) => {
-          if (state.meeting?.elapsedSeconds !== undefined) setElapsed(state.meeting.elapsedSeconds);
-        }).catch(() => {});
-        void startAudioPipeline().catch((error) => {
-          setLiveAsrText(error instanceof Error ? `录音启动失败：${error.message}` : "录音启动失败");
-          socket.close(3000, "audio pipeline error");
-        });
-      };
-
       socket.onmessage = async (event) => {
         let message: Record<string, unknown>;
         try {
@@ -1563,6 +1548,23 @@ function AppInner() {
           const reason = (message.reason as string) || "";
           pushToast("error", reason ? `转写保存失败：${reason}` : "转写保存失败，请稍后重试");
         }
+      };
+
+      // P0：onopen 移到 onmessage 之后注册——source_audio_ready 在连接建立后立即到达，
+      // 如果 onmessage 还没注册，消息会丢失（sourceNextSampleRef 永远 null，PCM 全进缓存不发送）。
+      socket.onopen = () => {
+        reconnectAttemptRef.current = 0;
+        setAsrDisconnectInfo(null);
+        setLiveAsrStatus("connecting");
+        setLiveAsrText("录音已开始，ASR 服务连接中...");
+        // 重连后从 /api/state 恢复累计会议时长——不从 0 开始（服务重启后 elapsed 被 useState(0) 重置）。
+        void apiJson<ApiState>("/api/state").then((state) => {
+          if (state.meeting?.elapsedSeconds !== undefined) setElapsed(state.meeting.elapsedSeconds);
+        }).catch(() => {});
+        void startAudioPipeline().catch((error) => {
+          setLiveAsrText(error instanceof Error ? `录音启动失败：${error.message}` : "录音启动失败");
+          socket.close(3000, "audio pipeline error");
+        });
       };
 
       socket.onerror = () => {
