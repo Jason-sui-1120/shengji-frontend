@@ -21,11 +21,14 @@ try {
   if (ownHash !== manifest.guardHash) throw new Error("同步校验脚本与清单不一致，请重新执行双端同步");
 
   for (const [relativePath, expectedHash] of Object.entries(manifest.files)) {
+    const publicDirectory = options.kind === "public" ? "public" : "front/public";
     const fullPath = relativePath.startsWith("$root/")
       ? resolve(repoRoot, relativePath.slice("$root/".length))
-      : resolve(repoRoot, sourceDirectory, relativePath);
+      : relativePath.startsWith("$public/")
+        ? resolve(repoRoot, publicDirectory, relativePath.slice("$public/".length))
+        : resolve(repoRoot, sourceDirectory, relativePath);
     const actualHash = hash(await readFile(fullPath));
-    if (actualHash !== expectedHash) throw new Error(`共享文件漂移：${sourceDirectory}/${relativePath}`);
+    if (actualHash !== expectedHash) throw new Error(`共享文件漂移：${relativePath}`);
   }
 
   // 哈希一致不代表 build 通过——import 路径可能解析失败（公网端 App.tsx import ./components/
