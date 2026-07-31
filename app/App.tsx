@@ -1354,7 +1354,11 @@ function AppInner() {
         workletNode.port.onmessage = (event) => {
           // 音频线程已转好 Int16 PCM + VAD 事件——主线程只收数据，不处理音频/VAD。
           const msg = event.data;
-          if (msg.type === "pcm") {
+          // 兼容浏览器仍缓存旧版 pcm-processor.js 时直接传来的 ArrayBuffer；
+          // 新协议统一使用 { type: "pcm", data }，两种格式都不得静默丢音。
+          if (msg instanceof ArrayBuffer) {
+            sendPcm(new Int16Array(msg));
+          } else if (msg?.type === "pcm" && msg.data instanceof ArrayBuffer) {
             const pcm = new Int16Array(msg.data);
             sendPcm(pcm);  // sendPcm 内部判断 readyState，非 OPEN 时进 pendingPcmRef
           } else if (msg.type === "vad.speech_start") {
@@ -1448,6 +1452,12 @@ function AppInner() {
         if (type === "status" && message.status === "asr_no_first_result") {
           setLiveAsrText("识别服务未返回结果，正在重试...");
           setAsrDisconnectInfo({ code: 0, reason: "asr_no_first_result", at: new Date().toISOString(), attempt: 0 });
+          return;
+        }
+        // P0：受控重连达到上限——明确展示错误，不无限停留在"识别中"
+        if (type === "status" && message.status === "asr_failed") {
+          setLiveAsrText((message.message as string) || "识别服务持续无响应，请结束录音后重试");
+          setAsrDisconnectInfo({ code: 0, reason: "asr_failed", at: new Date().toISOString(), attempt: 0 });
           return;
         }
         if (type === "transcript.partial") {

@@ -9,7 +9,7 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 const sourceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const sharedEntries = ["app/App.tsx", "components", "lib", "styles.css", "types.ts", "models.json"];
+const sharedEntries = ["app/App.tsx", "components", "lib", "styles.css", "types.ts", "models.json", "public"];
 const sourceName = "Jason-sui-1120/shengji-frontend";
 const guardSourcePath = resolve(sourceRoot, "scripts/verify-frontend-sync.mjs");
 
@@ -114,6 +114,10 @@ async function targetFileMap(target, sourceHashes) {
     } else if (source === "models.json") {
       // 共享模型配置由服务端从仓库根目录加载，不属于前端 src。
       files["$root/models.json"] = { source, hash };
+    } else if (source.startsWith("public/")) {
+      // P0：public/ 静态资源（pcm-processor.js 等）——同步到仓库根目录的 public/，
+      // 不是 src/public/（AudioWorklet 从 /pcm-processor.js 加载，不是 /src/public/pcm-processor.js）。
+      files[`$root/${source}`] = { source, hash };
     } else if (target.kind === "company") {
       files[source] = { source, hash };
     } else if (source === "styles.css") {
