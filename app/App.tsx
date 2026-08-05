@@ -89,14 +89,39 @@ type PresentationTranscriptLine = TranscriptLine & {
   presentationKey?: string;
   recentlyCalibrated?: boolean;
   isRealtimePreview?: boolean;
+  /** 仅用于本次 WS 会话：稳定行明确替换了哪些实时预览。 */
+  replacedPreviewIds?: number[];
+  /** 最近一次从服务端看到该行的时间，防止短暂的 DB 读延迟让草稿消失。 */
+  locallySeenAt?: number;
 };
 
-function hasTimelineOverlap(left: Pick<TranscriptLine, "audioStartMs" | "audioEndMs">, right: Pick<TranscriptLine, "audioStartMs" | "audioEndMs">) {
-  const leftStart = Number(left.audioStartMs || 0);
-  const leftEnd = Math.max(leftStart + 1, Number(left.audioEndMs || leftStart + 1));
-  const rightStart = Number(right.audioStartMs || 0);
-  const rightEnd = Math.max(rightStart + 1, Number(right.audioEndMs || rightStart + 1));
-  return leftEnd > rightStart && leftStart < rightEnd;
+function normalizeTranscriptForMatch(text: unknown) {
+  return String(text || "").replace(/[\s，。！？、,.!?；;：:“”‘’「」()（）\-]/g, "");
+}
+
+/**
+ * 状态刷新只能在“明确是同一条预览”时删除临时行。
+ * 不能再用任意时间重叠：一个文件 ASR 稳定长句可能覆盖多条实时句，
+ * 也可能因为边界修正与相邻说话人发生交叠，误删会造成用户看到的内容凭空消失。
+ */
+function isStableReplacement(preview: PresentationTranscriptLine, stable: TranscriptLine) {
+  if (!preview.isRealtimePreview || stable.stabilityStatus !== "stable") return false;
+  const previewStart = Number(preview.audioStartMs || 0);
+  const previewEnd = Math.max(previewStart + 1, Number(preview.audioEndMs || previewStart + 1));
+  const stableStart = Number(stable.audioStartMs || 0);
+  const stableEnd = Math.max(stableStart + 1, Number(stable.audioEndMs || stableStart + 1));
+  const closeBoundary = Math.abs(previewStart - stableStart) <= 1_500
+    && Math.abs(previewEnd - stableEnd) <= 2_000;
+  if (closeBoundary) return true;
+  const overlap = Math.max(0, Math.min(previewEnd, stableEnd) - Math.max(previewStart, stableStart));
+  const previewDuration = Math.max(1, previewEnd - previewStart);
+  if (overlap / previewDuration < 0.85) return false;
+  const previewText = normalizeTranscriptForMatch(preview.text);
+  const stableText = normalizeTranscriptForMatch(stable.text);
+  if (!previewText || !stableText) return false;
+  return stableText.includes(previewText) || previewText.includes(stableText)
+    || (Math.min(previewText.length, stableText.length) >= 8
+      && previewText.slice(0, 8) === stableText.slice(0, 8));
 }
 
 // 文件 ASR 校准会以新的数据库行替换实时草稿。保留同一时间片的展示 key，
@@ -128,6 +153,7 @@ function reconcileTranscriptPresentation(
       ...next,
       presentationKey: previous?.presentationKey || `transcript-${next.id}`,
       recentlyCalibrated: becameStable,
+      locallySeenAt: Date.now(),
     };
   });
 }
@@ -262,9 +288,20 @@ function AppInner() {
     setElapsed(state.meeting.elapsedSeconds);
     setSelectedProject(state.meeting.projectName);
     setNewMeetingProject(state.meeting.projectName);
-    setTranscripts((current) => reconcileTranscriptPresentation(current, state.transcripts));
+    setTranscripts((current) => {
+      const next = reconcileTranscriptPresentation(current, state.transcripts);
+      const incomingIds = new Set(state.transcripts.map((line) => Number(line.id)));
+      // MySQL 读副本/事务提交存在短暂延迟时，服务端响应可能暂时少一条刚落库的草稿。
+      // 保留 30 秒内本地已显示的草稿，避免刷新后列表回退；超过窗口再以服务端为准。
+      const retainedDrafts = current.filter((line) => (
+        line.stabilityStatus === "draft"
+        && !incomingIds.has(Number(line.id))
+        && Date.now() - Number(line.locallySeenAt || 0) < 30_000
+      ));
+      return [...next, ...retainedDrafts];
+    });
     setRealtimeTimelineSegments((current) => current.filter((preview) => !state.transcripts.some((line) => (
-      line.stabilityStatus === "stable" && hasTimelineOverlap(preview, line)
+      line.stabilityStatus === "stable" && isStableReplacement(preview, line)
     ))));
     setSummaryBlocks(state.summaryBlocks);
     setSegments(state.segments ?? []);
@@ -1413,6 +1450,13 @@ function AppInner() {
           setLiveAsrText("ASR 服务短暂中断，正在后台恢复...");
           return;
         }
+        if (type === "status" && message.status === "upstream_rotating") {
+          // 长会主动轮换上游任务，不代表录音或会议 WebSocket 断开；保持“录音中”，
+          // 只给用户一个短暂提示，避免把平滑切换误报成故障。
+          setLiveAsrStatus("recording");
+          setLiveAsrText("识别服务正在平滑切换，音频会继续保存...");
+          return;
+        }
         if (type === "status" && message.status === "realtime_asr_audio_gap") {
           setLiveAsrText((message.message as string) || "实时识别暂时中断，完整录音仍在保存...");
           pushToast("info", "实时识别出现缺口，文件 ASR 将根据完整录音补齐");
@@ -1481,7 +1525,14 @@ function AppInner() {
             },
           ]);
           const finalizedLine = message.line as TranscriptLine;
-          setRealtimeTimelineSegments((current) => current.filter((preview) => !hasTimelineOverlap(preview, finalizedLine)));
+          const replacedPreviewIds = Array.isArray((finalizedLine as PresentationTranscriptLine).replacedPreviewIds)
+            ? (finalizedLine as PresentationTranscriptLine).replacedPreviewIds!
+            : [];
+          setRealtimeTimelineSegments((current) => current.filter((preview) => (
+            replacedPreviewIds.length
+              ? !replacedPreviewIds.includes(Number(preview.id))
+              : !isStableReplacement(preview, finalizedLine)
+          )));
         }
         if (type === "transcript.realtime_segment" && message.segment) {
           const segment = message.segment as TranscriptLine;
