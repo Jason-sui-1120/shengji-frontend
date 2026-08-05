@@ -124,6 +124,33 @@ function isStableReplacement(preview: PresentationTranscriptLine, stable: Transc
       && previewText.slice(0, 8) === stableText.slice(0, 8));
 }
 
+/**
+ * 滚动文件 ASR 可能用新 ID 插入稳定行，而不是更新实时草稿原 ID。
+ * 这种情况下，保留草稿的读延迟兜底不能把旧草稿继续展示 30 分钟，
+ * 否则同一时间片会同时出现“实时草稿”和“稳定稿”，看起来像所有内容
+ * 都卡在实时转写里。只有时间区间接近且文本有明确关系时才认定为替换，
+ * 避免多人抢话或相邻短句被误删。
+ */
+function isPersistedDraftReplacedByStable(draft: TranscriptLine, stable: TranscriptLine) {
+  if (draft.stabilityStatus !== "draft" || stable.stabilityStatus !== "stable") return false;
+  if (Number(draft.id) === Number(stable.id)) return true;
+  const draftStart = Number(draft.audioStartMs || 0);
+  const draftEnd = Math.max(draftStart + 1, Number(draft.audioEndMs || draftStart + 1));
+  const stableStart = Number(stable.audioStartMs || 0);
+  const stableEnd = Math.max(stableStart + 1, Number(stable.audioEndMs || stableStart + 1));
+  const closeBoundary = Math.abs(draftStart - stableStart) <= 1_500
+    && Math.abs(draftEnd - stableEnd) <= 2_000;
+  if (closeBoundary) return true;
+  const overlap = Math.max(0, Math.min(draftEnd, stableEnd) - Math.max(draftStart, stableStart));
+  const draftDuration = Math.max(1, draftEnd - draftStart);
+  if (overlap / draftDuration < 0.85) return false;
+  const draftText = normalizeTranscriptForMatch(draft.text);
+  const stableText = normalizeTranscriptForMatch(stable.text);
+  if (draftText.length < 8 || stableText.length < 8) return false;
+  return stableText.includes(draftText) || draftText.includes(stableText)
+    || draftText.slice(0, 8) === stableText.slice(0, 8);
+}
+
 // 文件 ASR 校准会以新的数据库行替换实时草稿。保留同一时间片的展示 key，
 // 让 React 在原位置更新文字，而不是先卸载草稿、再插入稳定稿，避免用户
 // 误以为刚才的实时内容被吞掉。
@@ -345,6 +372,7 @@ function AppInner() {
     setTranscripts((current) => {
       const next = reconcileTranscriptPresentation(current, state.transcripts);
       const incomingIds = new Set(state.transcripts.map((line) => Number(line.id)));
+      const incomingStableRows = state.transcripts.filter((line) => line.stabilityStatus === "stable");
       // MySQL 读副本/事务提交存在短暂延迟时，服务端响应可能暂时少一条刚落库的草稿。
       // MySQL 读副本/事务提交存在短暂延迟时，服务端响应可能暂时少一条刚落库的草稿。
       // 活跃会议保留本地草稿，直到稳定稿或服务端重新返回它；不能 30 秒后把用户
@@ -352,6 +380,7 @@ function AppInner() {
       const retainedDrafts = current.filter((line) => (
         line.stabilityStatus === "draft"
         && !incomingIds.has(Number(line.id))
+        && !incomingStableRows.some((stable) => isPersistedDraftReplacedByStable(line, stable))
         && Date.now() - Number(line.locallySeenAt || 0) < 30 * 60_000
       ));
       return [...next, ...retainedDrafts];
