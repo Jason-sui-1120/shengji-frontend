@@ -238,6 +238,11 @@ function AppInner() {
   const [realtimeTimelineSegments, setRealtimeTimelineSegments] = React.useState<PresentationTranscriptLine[]>([]);
   const [asrDisconnectInfo, setAsrDisconnectInfo] = React.useState<AsrDisconnectInfo | null>(null);
   const liveAsrDraftRef = React.useRef({ buffered: "", partial: "" });
+  // partial 没有 SentenceEnd 时也要进入时间轴；这是一个“当前句”临时行，
+  // transcript.final 或稳定稿到达后会被精确移除，不写入数据库。
+  const realtimePartialPreviewIdRef = React.useRef<number | null>(null);
+  const realtimePartialPreviewStartRef = React.useRef(0);
+  const liveAudioOffsetRef = React.useRef(0);
   const [dbStatus, setDbStatus] = React.useState<"loading" | "ready" | "offline">("loading");
   const [meetingTab, setMeetingTab] = React.useState<"live" | "actions" | "history">("live");
   const [selectedProject, setSelectedProject] = React.useState(projectSeed[0].name);
@@ -282,6 +287,55 @@ function AppInner() {
   const outlineBodyRef = React.useRef<HTMLDivElement | null>(null);
   const liveBodyRef = React.useRef<HTMLDivElement | null>(null);
 
+  function formatLiveOffset(ms: number) {
+    const total = Math.max(0, Math.floor(Number(ms || 0) / 1000));
+    const hours = Math.floor(total / 3600);
+    const minutes = Math.floor((total % 3600) / 60);
+    const seconds = total % 60;
+    return hours > 0
+      ? `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`
+      : `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  }
+
+  function updateRealtimePartialPreview(text: string) {
+    const value = String(text || "").trim();
+    if (!value) return;
+    if (realtimePartialPreviewIdRef.current === null) {
+      realtimePartialPreviewIdRef.current = -1_000_000_000;
+      realtimePartialPreviewStartRef.current = Math.max(0, liveAudioOffsetRef.current - 15_000);
+    }
+    const start = realtimePartialPreviewStartRef.current;
+    const end = Math.max(start + 1, liveAudioOffsetRef.current || elapsed * 1000);
+    const preview: PresentationTranscriptLine = {
+      id: realtimePartialPreviewIdRef.current,
+      time: formatLiveOffset(start),
+      speaker: "待识别",
+      text: value,
+      focus: true,
+      audioStartMs: start,
+      audioEndMs: end,
+      stabilityStatus: "draft",
+      qualityStatus: "realtime",
+      isRealtimePreview: true,
+      presentationKey: "realtime-partial-preview",
+    };
+    setRealtimeTimelineSegments((current) => {
+      const index = current.findIndex((line) => line.id === preview.id);
+      if (index < 0) return [...current, preview];
+      const next = [...current];
+      next[index] = { ...next[index], ...preview };
+      return next;
+    });
+  }
+
+  function clearRealtimePartialPreview() {
+    const id = realtimePartialPreviewIdRef.current;
+    realtimePartialPreviewIdRef.current = null;
+    realtimePartialPreviewStartRef.current = 0;
+    if (id === null) return;
+    setRealtimeTimelineSegments((current) => current.filter((line) => line.id !== id));
+  }
+
   function applyApiState(state: ApiState) {
     setProjects(state.projects);
     setMeeting(state.meeting);
@@ -292,11 +346,13 @@ function AppInner() {
       const next = reconcileTranscriptPresentation(current, state.transcripts);
       const incomingIds = new Set(state.transcripts.map((line) => Number(line.id)));
       // MySQL 读副本/事务提交存在短暂延迟时，服务端响应可能暂时少一条刚落库的草稿。
-      // 保留 30 秒内本地已显示的草稿，避免刷新后列表回退；超过窗口再以服务端为准。
+      // MySQL 读副本/事务提交存在短暂延迟时，服务端响应可能暂时少一条刚落库的草稿。
+      // 活跃会议保留本地草稿，直到稳定稿或服务端重新返回它；不能 30 秒后把用户
+      // 已看到的内容凭空删掉（长会议、慢校准时尤其明显）。
       const retainedDrafts = current.filter((line) => (
         line.stabilityStatus === "draft"
         && !incomingIds.has(Number(line.id))
-        && Date.now() - Number(line.locallySeenAt || 0) < 30_000
+        && Date.now() - Number(line.locallySeenAt || 0) < 30 * 60_000
       ));
       return [...next, ...retainedDrafts];
     });
@@ -1433,6 +1489,7 @@ function AppInner() {
           // 后端定期发送当前音频偏移量（累计会议时长）——前端 elapsed 用这个值，
           // 不依赖 /api/state 的 elapsedSeconds（录音过程中不更新，只有 pause/seal 才写）。
           const offsetMs = Number(message.audioOffsetMs || 0);
+          if (offsetMs > 0) liveAudioOffsetRef.current = offsetMs;
           if (offsetMs > 0) setElapsed(Math.floor(offsetMs / 1000));
           return;
         }
@@ -1506,20 +1563,26 @@ function AppInner() {
         }
         if (type === "transcript.partial") {
           liveAsrDraftRef.current.partial = message.text as string;
-          setLiveAsrText(getDisplayDraft(liveAsrDraftRef.current.buffered, liveAsrDraftRef.current.partial));
+          const displayDraft = getDisplayDraft(liveAsrDraftRef.current.buffered, liveAsrDraftRef.current.partial);
+          setLiveAsrText(displayDraft);
+          updateRealtimePartialPreview(displayDraft);
         }
         if (type === "transcript.buffered") {
           liveAsrDraftRef.current.buffered = message.text as string;
-          setLiveAsrText(getDisplayDraft(liveAsrDraftRef.current.buffered, liveAsrDraftRef.current.partial));
+          const displayDraft = getDisplayDraft(liveAsrDraftRef.current.buffered, liveAsrDraftRef.current.partial);
+          setLiveAsrText(displayDraft);
+          updateRealtimePartialPreview(displayDraft);
         }
         if (type === "transcript.final") {
           liveAsrDraftRef.current = { buffered: "", partial: "" };
           setLiveAsrText("");
+          clearRealtimePartialPreview();
           setTranscripts((current) => [
             ...current.map((line) => ({ ...line, focus: false })),
             {
               ...(message.line as TranscriptLine),
               focus: true,
+              locallySeenAt: Date.now(),
               presentationKey: `transcript-${(message.line as TranscriptLine).id}`,
               recentlyCalibrated: false,
             },
@@ -1537,12 +1600,16 @@ function AppInner() {
         if (type === "transcript.realtime_segment" && message.segment) {
           const segment = message.segment as TranscriptLine;
           setRealtimeTimelineSegments((current) => {
-            if (current.some((line) => line.id === segment.id)) return current;
-            return [...current, {
+            const nextSegment = {
               ...segment,
               isRealtimePreview: true,
               presentationKey: `preview-${segment.id}`,
-            }];
+            };
+            const index = current.findIndex((line) => line.id === segment.id);
+            if (index < 0) return [...current, nextSegment];
+            const next = [...current];
+            next[index] = { ...next[index], ...nextSegment };
+            return next;
           });
         }
         if (type === "status" && message.status === "correcting") {
@@ -1597,6 +1664,7 @@ function AppInner() {
           }
           setLiveAsrStatus("idle");
           setLiveAsrText("");
+          clearRealtimePartialPreview();
           if (socket.readyState === WebSocket.OPEN) socket.close(1000, "meeting sealed");
           return;
         }
