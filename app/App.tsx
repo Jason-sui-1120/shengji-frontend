@@ -1038,11 +1038,22 @@ function AppInner() {
         }
       }
       if (!result.ok || !result.draft) throw new Error(result.message || "draft failed");
-      setFinalDraft(result.draft);
+      // 项目归属是会议的系统事实，不能由纪要模型的可选字段决定。
+      // 否则缺少 projectName 的草稿会让下拉框回退到第一个项目，确认归档时
+      // 就可能把会议错误移动到“机器人实施项目”。
+      const authoritativeProjectName = targetMeetingId === meeting.id
+        ? meeting.projectName
+        : (finalDraft?.projectName || result.draft?.projectName || "");
+      const draft = {
+        ...result.draft,
+        projectName: authoritativeProjectName,
+        title: result.draft?.title || (targetMeetingId === meeting.id ? meeting.title : finalDraft?.title || "会议纪要"),
+      };
+      setFinalDraft(draft);
       setFinalDraftMeetingId(targetMeetingId);
       setFinalizeStatus("done");
       setFinalizeStage("editor");
-      setFinalizeProjectId(projects.find((p) => p.name === result.draft?.projectName)?.id ?? null);
+      setFinalizeProjectId(projects.find((p) => p.name === authoritativeProjectName)?.id ?? null);
     } catch (error) {
       setFinalizeStatus("error");
       setFinalizeError(error instanceof Error ? error.message : "生成草稿失败");
@@ -1696,7 +1707,9 @@ function AppInner() {
           } catch {
             // 网络短暂波动不应阻塞会话关闭；下次进入会议仍会从服务端加载。
           }
-          const fallbackCount = Number(message.fallbackCount || 0);
+          // 新协议使用 forcedStableCount，旧会话/服务仍可能发送 fallbackCount。
+          // 两者都代表“尾段已用实时稿收口”，不能因此让页面继续停在校准中。
+          const fallbackCount = Number(message.fallbackCount ?? message.forcedStableCount ?? 0);
           if (fallbackCount > 0) {
             setCalibrationStatus(`尾段文件校准未完成，已保留并收口 ${fallbackCount} 条实时稿；完整录音仍可回听。`);
             pushToast("info", "尾段已使用实时稿兜底收口");
