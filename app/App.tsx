@@ -1533,7 +1533,17 @@ function AppInner() {
         }
         if (type === "status" && message.status === "upstream_reconnecting") {
           setLiveAsrStatus("reconnecting");
-          setLiveAsrText("ASR 服务短暂中断，正在后台恢复...");
+          const reason = String(message.reason || "");
+          const delaySeconds = Math.max(1, Math.round(Number(message.delay || 0) / 1000));
+          const isConcurrencyCooldown = message.recoveryMode === "concurrency_cooldown"
+            || /too many connections|\b1009\b|\b1011\b/i.test(reason);
+          if (isConcurrencyCooldown) {
+            // 上游释放名额期间不能假装“正在实时识别”。完整录音和 45 秒文件
+            // 稳定稿仍在工作，明确告知用户可避免误以为中间内容已丢失。
+            setLiveAsrText(`实时识别资源繁忙，约 ${delaySeconds} 秒后自动重试；完整录音和稳定转写会继续保存。`);
+          } else {
+            setLiveAsrText("ASR 服务短暂中断，正在后台恢复...");
+          }
           return;
         }
         if (type === "status" && message.status === "upstream_rotating") {
