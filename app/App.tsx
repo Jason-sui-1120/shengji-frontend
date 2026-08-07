@@ -88,99 +88,23 @@ import { TodoDrawer } from "./components/shared/TodoDrawer";
 type PresentationTranscriptLine = TranscriptLine & {
   presentationKey?: string;
   recentlyCalibrated?: boolean;
-  isRealtimePreview?: boolean;
-  /** 仅用于本次 WS 会话：稳定行明确替换了哪些实时预览。 */
-  replacedPreviewIds?: number[];
-  /** 最近一次从服务端看到该行的时间，防止短暂的 DB 读延迟让草稿消失。 */
-  locallySeenAt?: number;
 };
 
-function normalizeTranscriptForMatch(text: unknown) {
-  return String(text || "").replace(/[\s，。！？、,.!?；;：:“”‘’「」()（）\-]/g, "");
-}
-
-/**
- * 状态刷新只能在“明确是同一条预览”时删除临时行。
- * 不能再用任意时间重叠：一个文件 ASR 稳定长句可能覆盖多条实时句，
- * 也可能因为边界修正与相邻说话人发生交叠，误删会造成用户看到的内容凭空消失。
- */
-function isStableReplacement(preview: PresentationTranscriptLine, stable: TranscriptLine) {
-  if (!preview.isRealtimePreview || stable.stabilityStatus !== "stable") return false;
-  const previewStart = Number(preview.audioStartMs || 0);
-  const previewEnd = Math.max(previewStart + 1, Number(preview.audioEndMs || previewStart + 1));
-  const stableStart = Number(stable.audioStartMs || 0);
-  const stableEnd = Math.max(stableStart + 1, Number(stable.audioEndMs || stableStart + 1));
-  const closeBoundary = Math.abs(previewStart - stableStart) <= 1_500
-    && Math.abs(previewEnd - stableEnd) <= 2_000;
-  if (closeBoundary) return true;
-  const overlap = Math.max(0, Math.min(previewEnd, stableEnd) - Math.max(previewStart, stableStart));
-  const previewDuration = Math.max(1, previewEnd - previewStart);
-  if (overlap / previewDuration < 0.85) return false;
-  const previewText = normalizeTranscriptForMatch(preview.text);
-  const stableText = normalizeTranscriptForMatch(stable.text);
-  if (!previewText || !stableText) return false;
-  return stableText.includes(previewText) || previewText.includes(stableText)
-    || (Math.min(previewText.length, stableText.length) >= 8
-      && previewText.slice(0, 8) === stableText.slice(0, 8));
-}
-
-/**
- * 滚动文件 ASR 可能用新 ID 插入稳定行，而不是更新实时草稿原 ID。
- * 这种情况下，保留草稿的读延迟兜底不能把旧草稿继续展示 30 分钟，
- * 否则同一时间片会同时出现“实时草稿”和“稳定稿”，看起来像所有内容
- * 都卡在实时转写里。只有时间区间接近且文本有明确关系时才认定为替换，
- * 避免多人抢话或相邻短句被误删。
- */
-function isPersistedDraftReplacedByStable(draft: TranscriptLine, stable: TranscriptLine) {
-  if (draft.stabilityStatus !== "draft" || stable.stabilityStatus !== "stable") return false;
-  if (Number(draft.id) === Number(stable.id)) return true;
-  const draftStart = Number(draft.audioStartMs || 0);
-  const draftEnd = Math.max(draftStart + 1, Number(draft.audioEndMs || draftStart + 1));
-  const stableStart = Number(stable.audioStartMs || 0);
-  const stableEnd = Math.max(stableStart + 1, Number(stable.audioEndMs || stableStart + 1));
-  const closeBoundary = Math.abs(draftStart - stableStart) <= 1_500
-    && Math.abs(draftEnd - stableEnd) <= 2_000;
-  if (closeBoundary) return true;
-  const overlap = Math.max(0, Math.min(draftEnd, stableEnd) - Math.max(draftStart, stableStart));
-  const draftDuration = Math.max(1, draftEnd - draftStart);
-  if (overlap / draftDuration < 0.85) return false;
-  const draftText = normalizeTranscriptForMatch(draft.text);
-  const stableText = normalizeTranscriptForMatch(stable.text);
-  if (draftText.length < 8 || stableText.length < 8) return false;
-  return stableText.includes(draftText) || draftText.includes(stableText)
-    || draftText.slice(0, 8) === stableText.slice(0, 8);
-}
-
-// 文件 ASR 校准会以新的数据库行替换实时草稿。保留同一时间片的展示 key，
-// 让 React 在原位置更新文字，而不是先卸载草稿、再插入稳定稿，避免用户
-// 误以为刚才的实时内容被吞掉。
+// 时间轴只有一个权威来源：服务端已落库的草稿或稳定稿。每次 state 刷新均
+// 以数据库快照整体替换，不以文本相似度在浏览器猜测“谁替换了谁”。
+// 文件 ASR 的稳定稿可使用新行 ID、重分句或改写文字，客户端模糊匹配会造成
+// 旧草稿长期残留、重复和错误置顶。
 function reconcileTranscriptPresentation(
   current: PresentationTranscriptLine[],
   incoming: TranscriptLine[],
 ): PresentationTranscriptLine[] {
-  const available = [...current];
+  const previousById = new Map(current.map((line) => [Number(line.id), line]));
   return incoming.map((next) => {
-    const start = Number(next.audioStartMs || 0);
-    const end = Math.max(start + 1, Number(next.audioEndMs || start + 1));
-    let bestIndex = -1;
-    let bestOverlap = 0;
-    for (let index = 0; index < available.length; index += 1) {
-      const previous = available[index];
-      const previousStart = Number(previous.audioStartMs || 0);
-      const previousEnd = Math.max(previousStart + 1, Number(previous.audioEndMs || previousStart + 1));
-      const overlap = Math.max(0, Math.min(end, previousEnd) - Math.max(start, previousStart));
-      if (overlap > bestOverlap) {
-        bestIndex = index;
-        bestOverlap = overlap;
-      }
-    }
-    const previous = bestIndex >= 0 ? available.splice(bestIndex, 1)[0] : undefined;
-    const becameStable = previous?.stabilityStatus === "draft" && next.stabilityStatus === "stable";
+    const previous = previousById.get(Number(next.id));
     return {
       ...next,
       presentationKey: previous?.presentationKey || `transcript-${next.id}`,
-      recentlyCalibrated: becameStable,
-      locallySeenAt: Date.now(),
+      recentlyCalibrated: previous?.stabilityStatus === "draft" && next.stabilityStatus === "stable",
     };
   });
 }
@@ -262,13 +186,8 @@ function AppInner() {
   const [liveAsrStatus, setLiveAsrStatus] = React.useState<LiveAsrStatus>("idle");
   const [liveAsrText, setLiveAsrText] = React.useState("");
   const [calibrationStatus, setCalibrationStatus] = React.useState("");
-  const [realtimeTimelineSegments, setRealtimeTimelineSegments] = React.useState<PresentationTranscriptLine[]>([]);
   const [asrDisconnectInfo, setAsrDisconnectInfo] = React.useState<AsrDisconnectInfo | null>(null);
   const liveAsrDraftRef = React.useRef({ buffered: "", partial: "" });
-  // partial 没有 SentenceEnd 时也要进入时间轴；这是一个“当前句”临时行，
-  // transcript.final 或稳定稿到达后会被精确移除，不写入数据库。
-  const realtimePartialPreviewIdRef = React.useRef<number | null>(null);
-  const realtimePartialPreviewStartRef = React.useRef(0);
   const liveAudioOffsetRef = React.useRef(0);
   const [dbStatus, setDbStatus] = React.useState<"loading" | "ready" | "offline">("loading");
   const [meetingTab, setMeetingTab] = React.useState<"live" | "actions" | "history">("live");
@@ -314,80 +233,13 @@ function AppInner() {
   const outlineBodyRef = React.useRef<HTMLDivElement | null>(null);
   const liveBodyRef = React.useRef<HTMLDivElement | null>(null);
 
-  function formatLiveOffset(ms: number) {
-    const total = Math.max(0, Math.floor(Number(ms || 0) / 1000));
-    const hours = Math.floor(total / 3600);
-    const minutes = Math.floor((total % 3600) / 60);
-    const seconds = total % 60;
-    return hours > 0
-      ? `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`
-      : `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
-  }
-
-  function updateRealtimePartialPreview(text: string) {
-    const value = String(text || "").trim();
-    if (!value) return;
-    if (realtimePartialPreviewIdRef.current === null) {
-      realtimePartialPreviewIdRef.current = -1_000_000_000;
-      realtimePartialPreviewStartRef.current = Math.max(0, liveAudioOffsetRef.current - 15_000);
-    }
-    const start = realtimePartialPreviewStartRef.current;
-    const end = Math.max(start + 1, liveAudioOffsetRef.current || elapsed * 1000);
-    const preview: PresentationTranscriptLine = {
-      id: realtimePartialPreviewIdRef.current,
-      time: formatLiveOffset(start),
-      speaker: "待识别",
-      text: value,
-      focus: true,
-      audioStartMs: start,
-      audioEndMs: end,
-      stabilityStatus: "draft",
-      qualityStatus: "realtime",
-      isRealtimePreview: true,
-      presentationKey: "realtime-partial-preview",
-    };
-    setRealtimeTimelineSegments((current) => {
-      const index = current.findIndex((line) => line.id === preview.id);
-      if (index < 0) return [...current, preview];
-      const next = [...current];
-      next[index] = { ...next[index], ...preview };
-      return next;
-    });
-  }
-
-  function clearRealtimePartialPreview() {
-    const id = realtimePartialPreviewIdRef.current;
-    realtimePartialPreviewIdRef.current = null;
-    realtimePartialPreviewStartRef.current = 0;
-    if (id === null) return;
-    setRealtimeTimelineSegments((current) => current.filter((line) => line.id !== id));
-  }
-
   function applyApiState(state: ApiState) {
     setProjects(state.projects);
     setMeeting(state.meeting);
     setElapsed(state.meeting.elapsedSeconds);
     setSelectedProject(state.meeting.projectName);
     setNewMeetingProject(state.meeting.projectName);
-    setTranscripts((current) => {
-      const next = reconcileTranscriptPresentation(current, state.transcripts);
-      const incomingIds = new Set(state.transcripts.map((line) => Number(line.id)));
-      const incomingStableRows = state.transcripts.filter((line) => line.stabilityStatus === "stable");
-      // MySQL 读副本/事务提交存在短暂延迟时，服务端响应可能暂时少一条刚落库的草稿。
-      // MySQL 读副本/事务提交存在短暂延迟时，服务端响应可能暂时少一条刚落库的草稿。
-      // 活跃会议保留本地草稿，直到稳定稿或服务端重新返回它；不能 30 秒后把用户
-      // 已看到的内容凭空删掉（长会议、慢校准时尤其明显）。
-      const retainedDrafts = current.filter((line) => (
-        line.stabilityStatus === "draft"
-        && !incomingIds.has(Number(line.id))
-        && !incomingStableRows.some((stable) => isPersistedDraftReplacedByStable(line, stable))
-        && Date.now() - Number(line.locallySeenAt || 0) < 30 * 60_000
-      ));
-      return [...next, ...retainedDrafts];
-    });
-    setRealtimeTimelineSegments((current) => current.filter((preview) => !state.transcripts.some((line) => (
-      line.stabilityStatus === "stable" && isStableReplacement(preview, line)
-    ))));
+    setTranscripts((current) => reconcileTranscriptPresentation(current, state.transcripts));
     setSummaryBlocks(state.summaryBlocks);
     setSegments(state.segments ?? []);
     setActions(state.actions);
@@ -571,14 +423,9 @@ function AppInner() {
     : "待分析";
   const historyLabel = historyContext ? `已载入 ${historyContext.dateLabel}` : "无同项目历史";
   const speakerStats = getSpeakerStats(transcripts);
-  const displayTranscripts = React.useMemo(() => [...transcripts, ...realtimeTimelineSegments]
-    // 已持久化的实时行或稳定行一到，就接管相同时间区间的临时预览。
-    // 只过滤与 preview 完全同一时间窗的持久化转写（audioStartMs/audioEndMs 都相等），
-    // 不过滤部分重叠的——避免旧 preview 错误过滤新转写（"实时转写没显示"的根因）。
-    .filter((line) => line.isRealtimePreview || !realtimeTimelineSegments.some((preview) =>
-      Number(preview.audioStartMs || 0) === Number(line.audioStartMs || 0)
-      && Number(preview.audioEndMs || 0) === Number(line.audioEndMs || 0)))
-    .sort((left, right) => Number(left.audioStartMs || 0) - Number(right.audioStartMs || 0) || left.id - right.id), [transcripts, realtimeTimelineSegments]);
+  // 当前句只展示在顶部气泡；这里始终只渲染服务端已落库的时间轴快照。
+  const displayTranscripts = React.useMemo(() => [...transcripts]
+    .sort((left, right) => Number(left.audioStartMs || 0) - Number(right.audioStartMs || 0) || left.id - right.id), [transcripts]);
   const selectedProjectData = projects.find((project) => project.name === selectedProject) ?? projects[0];
   const selectedProjectArchives = finalizedMeetings.filter((archive) => archive.projectName === selectedProject);
   const selectedProjectActions = actionBacklog.filter((action) => action.projectName === selectedProject);
@@ -1615,51 +1462,27 @@ function AppInner() {
           liveAsrDraftRef.current.partial = message.text as string;
           const displayDraft = getDisplayDraft(liveAsrDraftRef.current.buffered, liveAsrDraftRef.current.partial);
           setLiveAsrText(displayDraft);
-          updateRealtimePartialPreview(displayDraft);
         }
         if (type === "transcript.buffered") {
           liveAsrDraftRef.current.buffered = message.text as string;
           const displayDraft = getDisplayDraft(liveAsrDraftRef.current.buffered, liveAsrDraftRef.current.partial);
           setLiveAsrText(displayDraft);
-          updateRealtimePartialPreview(displayDraft);
         }
         if (type === "transcript.final") {
           liveAsrDraftRef.current = { buffered: "", partial: "" };
           setLiveAsrText("");
-          clearRealtimePartialPreview();
-          setTranscripts((current) => [
-            ...current.map((line) => ({ ...line, focus: false })),
-            {
-              ...(message.line as TranscriptLine),
-              focus: true,
-              locallySeenAt: Date.now(),
-              presentationKey: `transcript-${(message.line as TranscriptLine).id}`,
-              recentlyCalibrated: false,
-            },
-          ]);
           const finalizedLine = message.line as TranscriptLine;
-          const replacedPreviewIds = Array.isArray((finalizedLine as PresentationTranscriptLine).replacedPreviewIds)
-            ? (finalizedLine as PresentationTranscriptLine).replacedPreviewIds!
-            : [];
-          setRealtimeTimelineSegments((current) => current.filter((preview) => (
-            replacedPreviewIds.length
-              ? !replacedPreviewIds.includes(Number(preview.id))
-              : !isStableReplacement(preview, finalizedLine)
-          )));
-        }
-        if (type === "transcript.realtime_segment" && message.segment) {
-          const segment = message.segment as TranscriptLine;
-          setRealtimeTimelineSegments((current) => {
-            const nextSegment = {
-              ...segment,
-              isRealtimePreview: true,
-              presentationKey: `preview-${segment.id}`,
-            };
-            const index = current.findIndex((line) => line.id === segment.id);
-            if (index < 0) return [...current, nextSegment];
-            const next = [...current];
-            next[index] = { ...next[index], ...nextSegment };
-            return next;
+          setTranscripts((current) => {
+            const previous = current.find((line) => Number(line.id) === Number(finalizedLine.id));
+            return [
+              ...current.filter((line) => Number(line.id) !== Number(finalizedLine.id)).map((line) => ({ ...line, focus: false })),
+              {
+                ...finalizedLine,
+                focus: true,
+                presentationKey: previous?.presentationKey || `transcript-${finalizedLine.id}`,
+                recentlyCalibrated: previous?.stabilityStatus === "draft" && finalizedLine.stabilityStatus === "stable",
+              },
+            ];
           });
         }
         if (type === "status" && message.status === "correcting") {
@@ -1716,7 +1539,6 @@ function AppInner() {
           }
           setLiveAsrStatus("idle");
           setLiveAsrText("");
-          clearRealtimePartialPreview();
           if (socket.readyState === WebSocket.OPEN) socket.close(1000, "meeting sealed");
           return;
         }
