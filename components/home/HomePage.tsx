@@ -1,7 +1,7 @@
 import { Plus, ArrowRight, Pause, Square, ChevronRight, Check, Calendar, ExternalLink } from "lucide-react";
 import { useState } from "react";
 import type { FinalizedMeeting, ActionBacklogItem, Meeting, TranscriptLine, SpeakerStat, ActionStatus } from "../../types";
-import { isOpenAction, getUrgencyLevel, type UrgencyLevel } from "../../lib/actions";
+import { isOpenAction, getUrgencyLevel, normalizeActionStatus, type UrgencyLevel } from "../../lib/actions";
 import { formatArchiveDate } from "../../lib/date";
 
 /** 按截止日期倒序排列（近的在前，无日期的排最后） */
@@ -60,10 +60,10 @@ export function HomePage({
     return level === "overdue" || level === "urgent";
   });
   const normalActions = openActions.filter((a) => getUrgencyLevel(a) === "normal");
-  const doneCount = actionBacklog.filter((a) => a.status === "done" || a.status === "cancelled").length;
+  const doneCount = actionBacklog.filter((a) => !isOpenAction(a)).length;
 
   // 首页展示最多12条：紧急优先，然后普通，然后已完成，按时间倒序
-  const doneActions = actionBacklog.filter((a) => a.status === "done" || a.status === "cancelled");
+  const doneActions = actionBacklog.filter((a) => !isOpenAction(a));
   const sortedUrgent = urgentActions.sort((a, b) => sortByDueDesc(a, b));
   const sortedNormal = normalActions.sort((a, b) => sortByDueDesc(a, b));
   const sortedDone = doneActions.sort((a, b) => sortByDueDesc(a, b));
@@ -231,8 +231,8 @@ function TodoItem({
   );
 }
 
-function getStatusShortLabel(status: ActionStatus): string {
-  switch (status) {
+function getStatusShortLabel(status: ActionStatus | string): string {
+  switch (normalizeActionStatus(status)) {
     case "candidate": return "候选";
     case "clarify": return "待澄清";
     case "confirmed": return "已确认";

@@ -1,6 +1,19 @@
 import type { ActionStatus } from "../types";
 
-export function getStatusLabel(status: ActionStatus) {
+export function normalizeActionStatus(status: ActionStatus | string | null | undefined, fallback: ActionStatus = "clarify"): ActionStatus {
+  const value = String(status || "").trim().toLowerCase();
+  if (["candidate", "clarify", "confirmed", "in_progress", "done", "cancelled"].includes(value)) {
+    return value as ActionStatus;
+  }
+  if (["open", "pending", "todo", "new", "待处理", "待办"].includes(value)) return "clarify";
+  if (["in progress", "in-progress", "进行中"].includes(value)) return "in_progress";
+  if (["completed", "complete", "已完成", "完成"].includes(value)) return "done";
+  if (["canceled", "取消", "已取消"].includes(value)) return "cancelled";
+  return fallback;
+}
+
+export function getStatusLabel(status: ActionStatus | string) {
+  const normalized = normalizeActionStatus(status);
   return {
     candidate: "候选",
     clarify: "待澄清",
@@ -8,7 +21,7 @@ export function getStatusLabel(status: ActionStatus) {
     in_progress: "进行中",
     done: "已完成",
     cancelled: "已取消",
-  }[status];
+  }[normalized];
 }
 
 export function parseStatusLabel(label: string): ActionStatus {
@@ -20,14 +33,16 @@ export function parseStatusLabel(label: string): ActionStatus {
 }
 
 export function isOpenAction(action: { status: ActionStatus | string }) {
-  return ["candidate", "clarify", "confirmed", "in_progress"].includes(action.status);
+  const status = normalizeActionStatus(action.status);
+  return status !== "done" && status !== "cancelled";
 }
 
 export type UrgencyLevel = "overdue" | "urgent" | "normal" | "done";
 
 /** 基于截止日期计算紧急度：已逾期=overdue，今明两天=urgent，一周内=normal，其他=normal */
 export function getUrgencyLevel(action: { due: string; status: ActionStatus | string }): UrgencyLevel {
-  if (action.status === "done" || action.status === "cancelled") return "done";
+  const status = normalizeActionStatus(action.status);
+  if (status === "done" || status === "cancelled") return "done";
   const due = action.due?.trim();
   if (!due || due === "待确认") return "normal";
   // 尝试解析日期

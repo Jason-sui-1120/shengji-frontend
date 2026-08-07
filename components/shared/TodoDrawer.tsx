@@ -19,7 +19,7 @@ export function TodoDrawer({
   const [filter, setFilter] = useState<"all" | "urgent" | "week" | "done">("all");
 
   const openActions = actionBacklog.filter(isOpenAction);
-  const doneActions = actionBacklog.filter((a) => a.status === "done" || a.status === "cancelled");
+  const doneActions = actionBacklog.filter((a) => !isOpenAction(a));
 
   const urgentCount = openActions.filter((a) => {
     const level = getUrgencyLevel(a);

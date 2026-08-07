@@ -1273,6 +1273,15 @@ button {
   padding-right: 4px;
 }
 
+/* 项目页作为 meeting-room 的唯一内容时，需要占满整块可用高度；
+   否则它会被排进第一条 auto 行，超出首屏的内容又会被外层 overflow:hidden 截断。 */
+.meeting-room > .project-page {
+  grid-row: 1 / -1;
+  min-width: 0;
+  min-height: 0;
+  align-self: stretch;
+}
+
 /* P3 项目工作区 Tab 化 */
 .project-tabs {
   display: flex;
