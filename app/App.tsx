@@ -2001,7 +2001,7 @@ function AppInner() {
           </div>
         </div>
 
-      <main className="meeting-room">
+      <main className={`meeting-room ${activeView === "projects" || activeView === "projectList" ? "project-scroll-room" : ""}`}>
         {activeView === "home" ? (
           <HomePage
             meeting={meeting}

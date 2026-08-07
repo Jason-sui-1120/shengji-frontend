@@ -1282,6 +1282,24 @@ button {
   align-self: stretch;
 }
 
+/* 项目总览与项目工作区不是实时会议的多区块网格：让主内容区成为
+   唯一滚动容器，滚轮落在标题、Tab 或会议列表上都能继续向下浏览。
+   这也避开了 history-page / project-page 在嵌套网格中被内容撑高后，
+   再被 meeting-room 的 overflow:hidden 裁掉的问题。 */
+.meeting-room.project-scroll-room {
+  display: block;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scrollbar-gutter: stable;
+}
+
+.meeting-room.project-scroll-room > .project-page,
+.meeting-room.project-scroll-room > .history-page {
+  min-height: 100%;
+  overflow: visible;
+}
+
 /* P3 项目工作区 Tab 化 */
 .project-tabs {
   display: flex;
